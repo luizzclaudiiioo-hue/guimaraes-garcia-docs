@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 const ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
-const ANTHROPIC_API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
+
 
 const EXTRACTION_PROMPT = `Você é um assistente jurídico. Extraia os dados do cliente a partir do texto abaixo, que foi enviado via WhatsApp em resposta a um script de coleta de dados para elaboração de documentos jurídicos.
 
@@ -275,9 +275,9 @@ export default function App() {
     if (!texto.trim()) return;
     setCarregando(true); setErro("");
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("/api/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: ANTHROPIC_MODEL, max_tokens: 1000, messages: [{ role: "user", content: EXTRACTION_PROMPT + "\n\n" + texto }] }),
       });
       const data = await res.json();
