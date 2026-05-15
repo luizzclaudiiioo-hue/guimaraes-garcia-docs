@@ -63,7 +63,7 @@ export default function App() {
   const [tipo, setTipo] = useState(null);
   const [texto, setTexto] = useState("");
   const [dados, setDados] = useState(null);
-  const [fin, setFin] = useState({ numeroProcesso: "", valorTotal: "", valorTotalExtenso: "", valorParcela: "", numParcelasRestantes: "", percentualExito: "10% (dez por cento)", parcelas: parcelasVazias(2) });
+  const [fin, setFin] = useState({ numeroProcesso: "", valorTotal: "", valorTotalExtenso: "", valorParcela: "", numParcelasRestantes: "", percentualExito: "10% (dez por cento)" });
   const [etapa, setEtapa] = useState("tipo");
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
@@ -117,7 +117,7 @@ export default function App() {
 
   function resetar() {
     setTipo(null); setTexto(""); setDados(null); setErro("");
-    setFin({ numeroProcesso: "", valorTotal: "", valorTotalExtenso: "", valorParcela: "", numParcelasRestantes: "", percentualExito: "10% (dez por cento)", parcelas: parcelasVazias(2) });
+    setFin({ numeroProcesso: "", valorTotal: "", valorTotalExtenso: "", valorParcela: "", numParcelasRestantes: "", percentualExito: "10% (dez por cento)" });
     setEtapa("tipo");
   }
 
@@ -230,33 +230,7 @@ export default function App() {
                 <Campo label="Nº de parcelas restantes" value={fin.numParcelasRestantes} onChange={(v) => setFin(p => ({ ...p, numParcelasRestantes: v }))} placeholder="5" />
                 <Campo label="Percentual de êxito" full value={fin.percentualExito} onChange={(v) => setFin(p => ({ ...p, percentualExito: v }))} />
 
-                <SecTitle>Tabela de pagamentos</SecTitle>
-                <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 12, color: "#8a9bb0", fontFamily: "sans-serif" }}>Linhas na tabela:</span>
-                  {[2,3,4,5,6,7,8].map(n => (
-                    <button key={n} onClick={() => setFin(p => ({ ...p, parcelas: parcelasVazias(n).map((x, i) => p.parcelas[i] || x) }))}
-                      style={{ padding: "4px 12px", borderRadius: 6, border: "1px solid rgba(201,168,76,0.3)", background: fin.parcelas.length === n ? GOLD : "transparent", color: fin.parcelas.length === n ? "#1a2940" : GOLD, cursor: "pointer", fontFamily: "sans-serif", fontSize: 13 }}>
-                      {n}
-                    </button>
-                  ))}
-                </div>
 
-                {fin.parcelas.map((p, i) => (
-                  <div key={i} style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "150px 1fr 1fr", gap: 8, alignItems: "end" }}>
-                    <div>
-                      <label style={sLabel}>Rótulo</label>
-                      <input value={p.label} onChange={(e) => setFin(prev => { const ps = [...prev.parcelas]; ps[i] = { ...ps[i], label: e.target.value }; return { ...prev, parcelas: ps }; })} style={sInput(!p.label)} />
-                    </div>
-                    <div>
-                      <label style={sLabel}>Valor</label>
-                      <input value={p.valor} placeholder="R$ 0,00" onChange={(e) => setFin(prev => { const ps = [...prev.parcelas]; ps[i] = { ...ps[i], valor: e.target.value }; return { ...prev, parcelas: ps }; })} style={sInput(!p.valor)} />
-                    </div>
-                    <div>
-                      <label style={sLabel}>Data</label>
-                      <input value={p.data} placeholder="DD/MM/AAAA" onChange={(e) => setFin(prev => { const ps = [...prev.parcelas]; ps[i] = { ...ps[i], data: e.target.value }; return { ...prev, parcelas: ps }; })} style={sInput(!p.data)} />
-                    </div>
-                  </div>
-                ))}
               </div>
               {erro && <p style={{ color: "#e05050", fontSize: 13, marginTop: 12, fontFamily: "sans-serif" }}>{erro}</p>}
               <button onClick={gerarDoc} style={{ ...sBtn(false), marginTop: 24 }}>⚖️  Gerar Contrato (.docx)</button>
