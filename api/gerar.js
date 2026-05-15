@@ -4,15 +4,46 @@ const GITHUB_USER = 'luizzclaudiiioo-hue';
 const GITHUB_REPO = 'guimaraes-garcia-docs';
 const GITHUB_BRANCH = 'main';
 
-const EXTENSO = {
-  1: 'uma', 2: 'duas', 3: 'três', 4: 'quatro', 5: 'cinco',
-  6: 'seis', 7: 'sete', 8: 'oito', 9: 'nove', 10: 'dez',
-  11: 'onze', 12: 'doze', 13: 'treze', 14: 'quatorze', 15: 'quinze',
-  16: 'dezesseis', 17: 'dezessete', 18: 'dezoito', 19: 'dezenove', 20: 'vinte'
+const EXTENSO_NUM = {
+  1:'uma',2:'duas',3:'três',4:'quatro',5:'cinco',6:'seis',7:'sete',8:'oito',9:'nove',10:'dez',
+  11:'onze',12:'doze',13:'treze',14:'quatorze',15:'quinze',16:'dezesseis',17:'dezessete',18:'dezoito',19:'dezenove',20:'vinte'
 };
 
-function numExtenso(n) {
-  return EXTENSO[parseInt(n)] || n;
+function numExtenso(n) { return EXTENSO_NUM[parseInt(n)] || n; }
+
+function valorExtenso(valor) {
+  if (!valor) return '';
+  const num = parseFloat((valor+'').replace(/R\$\s*/,'').replace(/\./g,'').replace(',','.'));
+  if (isNaN(num)) return valor;
+  const centavos = Math.round((num % 1) * 100);
+  const inteiro = Math.floor(num);
+  const unidades = ['','um','dois','três','quatro','cinco','seis','sete','oito','nove',
+    'dez','onze','doze','treze','quatorze','quinze','dezesseis','dezessete','dezoito','dezenove'];
+  const dezenas = ['','','vinte','trinta','quarenta','cinquenta','sessenta','setenta','oitenta','noventa'];
+  const centenas = ['','cem','duzentos','trezentos','quatrocentos','quinhentos',
+    'seiscentos','setecentos','oitocentos','novecentos'];
+  function menosDeMil(n) {
+    if (n === 100) return 'cem';
+    const c = Math.floor(n/100), r = n%100;
+    if (r===0) return centenas[c];
+    if (r<20) return (c>0?centenas[c]+' e ':'')+unidades[r];
+    const d=Math.floor(r/10),u=r%10;
+    return (c>0?centenas[c]+' e ':'')+dezenas[d]+(u>0?' e '+unidades[u]:'');
+  }
+  function porExtenso(n) {
+    if (n===0) return 'zero';
+    if (n<1000) return menosDeMil(n);
+    if (n<1000000) {
+      const mil=Math.floor(n/1000), r=n%1000;
+      const milStr = mil===1?'mil':menosDeMil(mil)+' mil';
+      return r===0?milStr:milStr+' e '+menosDeMil(r);
+    }
+    return String(n);
+  }
+  const parteInteira = porExtenso(inteiro);
+  const moeda = inteiro===1?'real':'reais';
+  if (centavos===0) return parteInteira+' '+moeda;
+  return parteInteira+' '+moeda+' e '+menosDeMil(centavos)+(centavos===1?' centavo':' centavos');
 }
 
 async function fetchTemplate(filename) {
@@ -22,19 +53,13 @@ async function fetchTemplate(filename) {
   return Buffer.from(await res.arrayBuffer());
 }
 
-function isRed(rPrXml) {
-  return /<w:color[^>]*w:val="FF0000"/.test(rPrXml);
-}
+function isRed(rPrXml) { return /<w:color[^>]*w:val="FF0000"/.test(rPrXml); }
 
 function removeRedColor(rPrInner) {
-  return rPrInner
-    .replace(/<w:color[^/]*\/>/g, '')
-    .replace(/<w:color[^>]*>[\s\S]*?<\/w:color>/g, '');
+  return rPrInner.replace(/<w:color[^/]*\/>/g,'').replace(/<w:color[^>]*>[\s\S]*?<\/w:color>/g,'');
 }
 
-function esc(s) {
-  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function substituirPorIndice(xml, mapa) {
   let redIdx = 0;
@@ -109,11 +134,14 @@ export default async function handler(req, res) {
       const nome = d.nome.toUpperCase();
       const orgao = d.orgao_expeditor || ('SSP/' + d.estado);
       const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
-      
-      const entrada = fin.valorEntrada || "";
+      const entrada = fin.valorEntrada || '';
       const numParc = fin.numParcelasRestantes;
       const numParcExtenso = numExtenso(numParc);
-      const stripRS = v => (v || '').replace(/^R\$\s*/, '');
+      const stripRS = v => (v||'').replace(/^R\$\s*/,'');
+
+      // Extensos automáticos
+      const entradaExtenso = valorExtenso(entrada);
+      const parcelaExtenso = valorExtenso(fin.valorParcela);
 
       const mapa = [
         // Para 6
@@ -132,41 +160,43 @@ export default async function handler(req, res) {
         // Para 13
         { index: 12, value: fin.numeroProcesso },
         // Para 19 — valor total
+        // RED[13]='R$' RED[14]=' ' RED[15-17]=número
         { index: 13, value: 'R$' },
         { index: 14, value: ' ' },
         { index: 15, value: stripRS(fin.valorTotal) },
         { index: 16, value: '' },
         { index: 17, value: '' },
+        // RED[18]=' (' RED[19-23]=extenso
         { index: 18, value: ' (' },
-        { index: 19, value: fin.valorTotalExtenso + ')' },
+        { index: 19, value: valorExtenso(fin.valorTotal) + ')' },
         { index: 20, value: '' },
         { index: 21, value: '' },
         { index: 22, value: '' },
         { index: 23, value: '' },
-        // entrada
+        // RED[24-28]=valor entrada
         { index: 24, value: stripRS(entrada) },
         { index: 25, value: '' },
         { index: 26, value: '' },
         { index: 27, value: '' },
         { index: 28, value: '' },
-        // extenso entrada — zerar
-        { index: 29, value: '' },
+        // RED[29-32]=extenso entrada — automático
+        { index: 29, value: '(' + entradaExtenso + ')' },
         { index: 30, value: '' },
         { index: 31, value: '' },
         { index: 32, value: '' },
-        // num parcelas
+        // RED[33]=num parcelas
         { index: 33, value: numParc },
-        // RED[34]=' (' fixo
+        // RED[34]=' ('
         { index: 34, value: ' (' },
-        // RED[35]: extenso num parcelas — gerado automaticamente
+        // RED[35]=extenso num parcelas — automático
         { index: 35, value: numParcExtenso },
-        // RED[36]=') parcelas de R$ ' fixo
+        // RED[36]=') parcelas de R$ '
         { index: 36, value: ') parcelas de R$ ' },
-        // valor parcela
+        // RED[37-38]=valor parcela
         { index: 37, value: stripRS(fin.valorParcela) },
         { index: 38, value: '' },
-        // extenso valor parcela — zerar
-        { index: 39, value: '' },
+        // RED[39-43]=extenso parcela — automático
+        { index: 39, value: '(' + parcelaExtenso + ')' },
         { index: 40, value: '' },
         { index: 41, value: '' },
         { index: 42, value: '' },
