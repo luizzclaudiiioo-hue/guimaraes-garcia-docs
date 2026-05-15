@@ -95,100 +95,114 @@ export default async function handler(req, res) {
       xml = substituirPorIndice(xml, mapa);
 
     } else {
-      // CONTRATO — mapeamento exato do novo template
+      // CONTRATO — mapeamento exato baseado na análise do novo template
       const nome = d.nome.toUpperCase();
       const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
-      const orgao = d.orgao_expeditor || 'SSP/' + d.estado;
+      const orgao = d.orgao_expeditor || ('SSP/' + d.estado);
       const parcelas = fin.parcelas || [];
       const entrada = parcelas[0]?.valor || '';
 
+      // Para 6:
+      // RED[0]: NOME CLIENTE
+      // RED[1]: 'brasileir', RED[2]: 'o', RED[3]: '(a)'
+      // RED[4]: estado civil
+      // RED[5]: profissão
+      // RED[6]: RG número (run[24])
+      // RED[7]: órgão expedidor (run[29]), RED[8]: ' ' (run[30])
+      // run[31]: 'inscrito(a) no CPF sob o nº' (texto fixo — já tem vírgula no run[25] antes)
+      // RED[9]: CPF (run[33])
+      // RED[10]: endereço (run[40])
+      // RED[11]: email (run[43])
+
+      // Para 13: RED[12]: número processo
+
+      // Para 19:
+      // RED[13-17]: valor total (R$ 10.000,00) — colocar tudo no [13], zerar demais
+      // RED[18-23]: extenso — colocar tudo no [18], zerar demais
+      // RED[24-28]: entrada — colocar tudo no [24], zerar demais
+      // RED[29-32]: extenso entrada — zerar todos
+      // RED[33]: num parcelas restantes
+      // RED[34-36]: extenso num parcelas — zerar
+      // RED[37-38]: valor parcela — colocar no [37], zerar [38]
+      // RED[39-43]: extenso valor parcela — zerar
+
+      // Para 86 (data):
+      // RED[44]: 'São Paulo', RED[45]: ', '
+      // RED[46]: dia1, RED[47]: dia2 → colocar dia no [46], zerar [47]
+      // RED[48]: ' ', RED[49]: 'de '
+      // RED[50]: mês
+      // RED[51]: 'de ', RED[52]: '202', RED[53]: '6', RED[54]: '.'
+
+      // Para 91 (assinatura): RED[55]: nome
+
       const mapa = [
-        // Para 6 — qualificação cliente
-        // RED[0]: NOME CLIENTE
+        // Para 6
         { index: 0,  value: nome },
-        // RED[1-3]: brasileiro(a)
         { index: 1,  value: 'brasileiro(a)' },
         { index: 2,  value: '' },
         { index: 3,  value: '' },
-        // RED[4]: estado civil
         { index: 4,  value: d.estado_civil },
-        // RED[5]: profissão
         { index: 5,  value: d.profissao },
-        // RED[6]: RG número
         { index: 6,  value: d.rg },
-        // RED[7]: órgão expedidor, RED[8]: espaço
-        { index: 7,  value: orgao },
+        { index: 7,  value: orgao + ',' },
         { index: 8,  value: ' ' },
-        // RED[9]: CPF
         { index: 9,  value: d.cpf },
-        // RED[10]: endereço completo
         { index: 10, value: enderecoCompleto },
-        // RED[11]: email
         { index: 11, value: d.email },
-
-        // Para 13 — número do processo
+        // Para 13
         { index: 12, value: fin.numeroProcesso },
-
-        // Para 19 — honorários
-        // RED[13-17]: valor total (R$ 10.000,00)
+        // Para 19 — valor total
         { index: 13, value: fin.valorTotal },
         { index: 14, value: '' },
         { index: 15, value: '' },
         { index: 16, value: '' },
         { index: 17, value: '' },
-        // RED[18-23]: (dez mil reais)
+        // extenso valor total
         { index: 18, value: '(' + fin.valorTotalExtenso + ')' },
         { index: 19, value: '' },
         { index: 20, value: '' },
         { index: 21, value: '' },
         { index: 22, value: '' },
         { index: 23, value: '' },
-        // RED[24-28]: valor entrada (5.000,00)
+        // entrada
         { index: 24, value: entrada },
         { index: 25, value: '' },
         { index: 26, value: '' },
         { index: 27, value: '' },
         { index: 28, value: '' },
-        // RED[29-32]: (cinco mil reais)
+        // extenso entrada — zerar
         { index: 29, value: '' },
         { index: 30, value: '' },
         { index: 31, value: '' },
         { index: 32, value: '' },
-        // RED[33]: número de parcelas restantes
+        // num parcelas restantes
         { index: 33, value: fin.numParcelasRestantes },
-        // RED[34-36]: (cinco) parcelas de R$
+        // extenso num parcelas — zerar
         { index: 34, value: '' },
         { index: 35, value: '' },
         { index: 36, value: '' },
-        // RED[37-38]: valor da parcela (1.000,00)
+        // valor parcela
         { index: 37, value: fin.valorParcela },
         { index: 38, value: '' },
-        // RED[39-43]: (mil reais)
+        // extenso valor parcela — zerar
         { index: 39, value: '' },
         { index: 40, value: '' },
         { index: 41, value: '' },
         { index: 42, value: '' },
         { index: 43, value: '' },
-
-        // Para 86 — data completa
-        // RED[44]: 'São Paulo', RED[45]: ', '
+        // Para 86 — data
         { index: 44, value: 'São Paulo' },
         { index: 45, value: ', ' },
-        // RED[46-47]: dia (07)
         { index: 46, value: dia },
         { index: 47, value: '' },
-        // RED[48-49]: ' de '
         { index: 48, value: ' ' },
         { index: 49, value: 'de ' },
-        // RED[50]: mês
         { index: 50, value: mes + ' ' },
-        // RED[51-54]: 'de 2026.'
         { index: 51, value: 'de ' },
-        { index: 52, value: ano.substring(0, 3) },
+        { index: 52, value: ano.substring(0,3) },
         { index: 53, value: ano.substring(3) },
         { index: 54, value: '.' },
-
-        // Para 91 — assinatura cliente
+        // Para 91 — assinatura
         { index: 55, value: nome },
       ];
 
