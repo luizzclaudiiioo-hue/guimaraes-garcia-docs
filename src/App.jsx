@@ -48,7 +48,6 @@ function Campo({ label, value, onChange, full, placeholder }) {
       <label style={sLabel}>{label}</label>
       <input value={value || ""} placeholder={placeholder || ""} onChange={(e) => onChange(e.target.value)} style={sInput(!value)} />
     </div>
-    </>
   );
 }
 
@@ -57,7 +56,6 @@ function SecTitle({ children }) {
     <div style={{ gridColumn: "1 / -1", borderBottom: "1px solid rgba(90,122,90,0.25)", paddingBottom: 6, marginTop: 12, marginBottom: 2 }}>
       <span style={{ fontSize: 11, color: GOLD, letterSpacing: 2, textTransform: "uppercase", fontFamily: "sans-serif" }}>{children}</span>
     </div>
-    </>
   );
 }
 
@@ -216,7 +214,7 @@ export default function App() {
                   <Campo key={key} label={label} full={full} value={dados[key]} onChange={(v) => setDados(p => ({ ...p, [key]: v }))} />
                 ))}
               </div>
-              <button onClick={() => tipo === "contrato" ? setEtapa("financeiro") : gerarDoc()} style={{ ...sBtn(false), marginTop: 24 }}>
+              <button onClick={() => tipo === "contrato" ? setEtapa("financeiro") : tipoTemDadosEspeciais ? setEtapa("extras") : gerarDoc()} style={{ ...sBtn(false), marginTop: 24 }}>
                 {tipoTemFinanceiro ? "Próximo: Honorários →" : tipoTemDadosEspeciais ? "Próximo: Dados Extras →" : tipo === "declaracao" ? "📝  Gerar Declaração (.docx)" : "📋  Gerar Procuração (.docx)"}
               </button>
             </>
@@ -243,6 +241,38 @@ export default function App() {
               </div>
               {erro && <p style={{ color: "#e05050", fontSize: 13, marginTop: 12, fontFamily: "sans-serif" }}>{erro}</p>}
               <button onClick={gerarDoc} style={{ ...sBtn(false), marginTop: 24 }}>⚖️  Gerar Contrato (.docx)</button>
+            </>
+          )}
+
+          {etapa === "extras" && (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <span style={{ ...sLabel, margin: 0 }}>Dados adicionais</span>
+                <button onClick={() => setEtapa("revisao")} style={{ background: "none", border: "none", color: "#666666", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif" }}>← Voltar</button>
+              </div>
+              {tipo === "amaisa" && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <SecTitle>Dados da União Estável</SecTitle>
+                  <Campo label="Nome do(a) companheiro(a)" full value={fin.nomeAmaisa || ""} onChange={(v) => setFin(p => ({ ...p, nomeAmaisa: v }))} />
+                  <Campo label="Data de início da união" value={fin.dataUniao || ""} onChange={(v) => setFin(p => ({ ...p, dataUniao: v }))} placeholder="dd/mm/aaaa" />
+                </div>
+              )}
+              {tipo === "proprietario" && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <SecTitle>Dados do Locatário</SecTitle>
+                  <Campo label="Nome do locatário" full value={fin.nomeLocatario || ""} onChange={(v) => setFin(p => ({ ...p, nomeLocatario: v }))} />
+                  <Campo label="CPF do locatário" value={fin.cpfLocatario || ""} onChange={(v) => setFin(p => ({ ...p, cpfLocatario: v }))} />
+                </div>
+              )}
+              {tipo === "revogacao" && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <SecTitle>Dados da Revogação</SecTitle>
+                  <Campo label="Nome do advogado revogado" full value={fin.nomeAdvogado || ""} onChange={(v) => setFin(p => ({ ...p, nomeAdvogado: v }))} />
+                  <Campo label="Data da procuração original" value={fin.dataProcuracao || ""} onChange={(v) => setFin(p => ({ ...p, dataProcuracao: v }))} placeholder="dd/mm/aaaa" />
+                </div>
+              )}
+              {erro && <p style={{ color: "#e05050", fontSize: 13, marginTop: 12, fontFamily: "sans-serif" }}>{erro}</p>}
+              <button onClick={gerarDoc} style={{ ...sBtn(false), marginTop: 24 }}>📄  Gerar Documento (.docx)</button>
             </>
           )}
 
