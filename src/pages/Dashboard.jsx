@@ -43,6 +43,7 @@ export default function Dashboard({ user, onNovoDocumento }) {
     }}>
       <div style={{ maxWidth: 700, margin: "0 auto" }}>
 
+        {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 32 }}>
           <div>
             <div style={{
@@ -71,6 +72,7 @@ export default function Dashboard({ user, onNovoDocumento }) {
           </button>
         </div>
 
+        {/* Card de créditos + botão */}
         <div style={{
           background: "rgba(255,255,255,0.04)",
           border: "1px solid rgba(201,168,76,0.2)",
@@ -117,3 +119,98 @@ export default function Dashboard({ user, onNovoDocumento }) {
                 color: saldo === 0 ? "#8a7a50" : "#1a2940",
                 fontSize: 14,
                 fontWeight: "bold",
+                cursor: saldo === 0 ? "not-allowed" : "pointer",
+                fontFamily: "sans-serif",
+                whiteSpace: "nowrap",
+              }}
+            >
+              + Novo Documento
+            </button>
+            {saldo === 0 && (
+              <span style={{ fontSize: 11, color: "#e05050", fontFamily: "sans-serif" }}>
+                Sem créditos — em breve compra disponível
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Histórico */}
+        <div style={{
+          background: "rgba(255,255,255,0.04)",
+          border: "1px solid rgba(201,168,76,0.15)",
+          borderRadius: 16,
+          overflow: "hidden",
+        }}>
+          <div style={{
+            padding: "16px 24px",
+            borderBottom: "1px solid rgba(201,168,76,0.1)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}>
+            <span style={{ fontSize: 11, color: GOLD, letterSpacing: 2, textTransform: "uppercase", fontFamily: "sans-serif" }}>
+              Documentos gerados
+            </span>
+            <span style={{ fontSize: 12, color: "#5a6a7a", fontFamily: "sans-serif" }}>
+              {documentos.length} {documentos.length === 1 ? "documento" : "documentos"}
+            </span>
+          </div>
+
+          {carregando ? (
+            <div style={{ padding: 32, textAlign: "center", color: "#5a6a7a", fontFamily: "sans-serif", fontSize: 13 }}>
+              Carregando...
+            </div>
+          ) : documentos.length === 0 ? (
+            <div style={{ padding: 40, textAlign: "center" }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>📄</div>
+              <p style={{ color: "#5a6a7a", fontFamily: "sans-serif", fontSize: 13, margin: 0 }}>
+                Nenhum documento gerado ainda.<br />Clique em "Novo Documento" para começar.
+              </p>
+            </div>
+          ) : (
+            <div>
+              {documentos.map((doc, i) => (
+                <div key={doc.id} style={{
+                  padding: "14px 24px",
+                  borderBottom: i < documentos.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 14,
+                }}>
+                  <span style={{ fontSize: 22 }}>
+                    {doc.tipo === "procuracao" ? "📋" : "⚖️"}
+                  </span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, color: "#e8e0d0", marginBottom: 2 }}>
+                      {doc.titulo || (doc.tipo === "procuracao" ? "Procuração" : "Contrato de Honorários")}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#5a6a7a", fontFamily: "sans-serif" }}>
+                      {new Date(doc.created_at).toLocaleDateString("pt-BR", {
+                        day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit"
+                      })}
+                    </div>
+                  </div>
+                  <span style={{
+                    fontSize: 11,
+                    padding: "3px 10px",
+                    borderRadius: 20,
+                    fontFamily: "sans-serif",
+                    background: doc.tipo === "procuracao" ? "rgba(80,150,200,0.15)" : "rgba(201,168,76,0.12)",
+                    color: doc.tipo === "procuracao" ? "#6ab0d8" : GOLD,
+                    border: doc.tipo === "procuracao" ? "1px solid rgba(80,150,200,0.2)" : "1px solid rgba(201,168,76,0.2)",
+                  }}>
+                    {doc.tipo === "procuracao" ? "Procuração" : "Contrato"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <p style={{ textAlign: "center", color: "#2a3a4a", fontSize: 12, marginTop: 24, fontFamily: "sans-serif" }}>
+          Guimarães & Garcia — Plataforma de Documentos Jurídicos
+        </p>
+      </div>
+    </div>
+  );
+}
