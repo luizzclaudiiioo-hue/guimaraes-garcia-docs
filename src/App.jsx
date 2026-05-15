@@ -1,7 +1,4 @@
-import { useState, useEffect } from "react";
-import { supabase } from "./lib/supabase";
-import Auth from "./pages/Auth";
-import Dashboard from "./pages/Dashboard";
+import { useState } from "react";
 
 const ANTHROPIC_MODEL = "claude-sonnet-4-5";
 
@@ -30,6 +27,14 @@ Para estado civil e profissão: normalize para minúsculas.
 
 Texto do cliente:`;
 
+function parcelasVazias(n) {
+  return Array.from({ length: n }, (_, i) => ({
+    label: i === 0 ? "Entrada" : `${i}ª parcela`,
+    valor: "",
+    data: "",
+  }));
+}
+
 const GOLD = "#c9a84c";
 const GOLD_L = "#e8c96b";
 
@@ -55,8 +60,6 @@ function SecTitle({ children }) {
 }
 
 export default function App() {
-  const [session, setSession] = useState(undefined);
-  const [tela, setTela] = useState("dashboard");
   const [tipo, setTipo] = useState(null);
   const [texto, setTexto] = useState("");
   const [dados, setDados] = useState(null);
@@ -64,27 +67,6 @@ export default function App() {
   const [etapa, setEtapa] = useState("tipo");
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-    return () => subscription.unsubscribe();
-  }, []);
-
-  async function debitarCredito(tipoDoc, nomeCliente) {
-    const user = session?.user;
-    if (!user) return;
-    const { data: cred } = await supabase.from("credits").select("saldo").eq("user_id", user.id).single();
-    if (!cred || cred.saldo <= 0) throw new Error("Sem créditos disponíveis.");
-    await supabase.from("credits").update({ saldo: cred.saldo - 1, updated_at: new Date().toISOString() }).eq("user_id", user.id);
-    await supabase.from("documents").insert({
-      user_id: user.id,
-      tipo: tipoDoc,
-      titulo: tipoDoc === "procuracao" ? `Procuração — ${nomeCliente}` : `Contrato de Honorários — ${nomeCliente}`,
-    });
-  }
 
   async function extrairDados() {
     if (!texto.trim()) return;
@@ -106,23 +88,29 @@ export default function App() {
   async function gerarDoc() {
     setEtapa("gerando");
     try {
-      await debitarCredito(tipo, dados.nome);
       const res = await fetch("/api/gerar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tipo, dados, financeiro: fin }),
       });
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error || "Erro ao gerar documento"); }
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Erro ao gerar documento");
+      }
+
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = tipo === "procuracao" ? `Procuracao_${dados.nome.replace(/\s+/g, "_")}.docx` : `Contrato_${dados.nome.replace(/\s+/g, "_")}.docx`;
+      a.download = tipo === "procuracao"
+        ? `Procuracao_${dados.nome.replace(/\s+/g, "_")}.docx`
+        : `Contrato_${dados.nome.replace(/\s+/g, "_")}.docx`;
       a.click();
       URL.revokeObjectURL(url);
       setEtapa("pronto");
     } catch (e) {
-      setErro("Erro: " + e.message);
+      setErro("Erro ao gerar documento: " + e.message);
       setEtapa(tipo === "contrato" ? "financeiro" : "revisao");
     }
   }
@@ -131,7 +119,6 @@ export default function App() {
     setTipo(null); setTexto(""); setDados(null); setErro("");
     setFin({ numeroProcesso: "", valorTotal: "", valorEntrada: "", valorParcela: "", numParcelasRestantes: "", percentualExito: "10% (dez por cento)" });
     setEtapa("tipo");
-    setTela("dashboard");
   }
 
   const camposCliente = [
@@ -145,22 +132,8 @@ export default function App() {
     { key: "email", label: "E-mail", full: true },
   ];
 
-  const steps = tipo === "contrato" ? ["Documento", "Texto", "Dados", "Honorários", "Pronto"] : ["Documento", "Texto", "Dados", "Pronto"];
+  const steps = tipo === "contrato" ? ["Documento","Texto","Dados","Honorários","Pronto"] : ["Documento","Texto","Dados","Pronto"];
   const etapaIdx = { tipo: 0, input: 1, revisao: 2, financeiro: 3, gerando: tipo === "contrato" ? 3 : 2, pronto: tipo === "contrato" ? 4 : 3 }[etapa] ?? 0;
-
-  if (session === undefined) {
-    return (
-      <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0f1923 0%, #1a2940 100%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ color: "#5a6a7a", fontFamily: "sans-serif", fontSize: 14 }}>Carregando...</div>
-      </div>
-    );
-  }
-
-  if (!session) return <Auth />;
-
-  if (tela === "dashboard") {
-    return <Dashboard user={session.user} onNovoDocumento={() => { setTela("gerador"); setEtapa("tipo"); }} />;
-  }
 
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0f1923 0%, #1a2940 100%)", fontFamily: "Georgia, serif", color: "#e8e0d0", padding: "32px 16px" }}>
@@ -172,12 +145,6 @@ export default function App() {
           </div>
           <h1 style={{ fontSize: 26, fontWeight: "normal", color: "#f0ead8", margin: "0 0 6px", letterSpacing: 1 }}>Gerador de Documentos</h1>
           <p style={{ color: "#8a9bb0", fontSize: 13, margin: 0, fontFamily: "sans-serif" }}>Procurações e Contratos de Honorários</p>
-        </div>
-
-        <div style={{ textAlign: "left", marginBottom: 16 }}>
-          <button onClick={() => setTela("dashboard")} style={{ background: "none", border: "none", color: "#5a6a7a", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif" }}>
-            ← Voltar ao painel
-          </button>
         </div>
 
         {etapa !== "tipo" && (
@@ -289,7 +256,6 @@ export default function App() {
               </button>
             </div>
           )}
-
         </div>
 
         <p style={{ textAlign: "center", color: "#3a4a5a", fontSize: 12, marginTop: 24, fontFamily: "sans-serif" }}>
