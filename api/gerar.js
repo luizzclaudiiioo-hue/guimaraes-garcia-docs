@@ -93,7 +93,17 @@ export default async function handler(req, res) {
     const mes = meses[hoje.getMonth()];
     const ano = String(hoje.getFullYear());
 
-    const filename = tipo === 'procuracao' ? 'template_procuracao.docx' : 'template_contrato.docx';
+    const filenameMap = {
+      procuracao: 'template_procuracao.docx',
+      contrato: 'template_contrato.docx',
+      declaracao: 'template_declaracao.docx',
+      revogacao: 'template_revogacao.docx',
+      residencia_propria: 'template_residencia_propria.docx',
+      amaisa: 'template_amaisa.docx',
+      proprietario: 'template_proprietario.docx',
+    };
+    const filename = filenameMap[tipo];
+    if (!filename) return res.status(400).json({ error: `Tipo desconhecido: ${tipo}` });
     const templateBuf = await fetchTemplate(filename);
     const zip = await JSZip.loadAsync(templateBuf);
     let xml = await zip.file('word/document.xml').async('string');
@@ -216,13 +226,173 @@ export default async function handler(req, res) {
       ];
 
       xml = substituirPorIndice(xml, mapa);
+
+    } else if (tipo === 'declaracao') {
+      const nome = d.nome.toUpperCase();
+      const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
+      const mapa = [
+        { index: 0,  value: nome },
+        { index: 1,  value: 'brasileiro(a)' },
+        { index: 2,  value: d.estado_civil },
+        { index: 3,  value: d.profissao },
+        { index: 4,  value: d.rg },
+        { index: 5,  value: d.cpf },
+        { index: 6,  value: enderecoCompleto },
+        { index: 7,  value: d.email },
+        { index: 8,  value: 'São Paulo, ' },
+        { index: 9,  value: dia },
+        { index: 10, value: ' de ' },
+        { index: 11, value: mes + ' ' },
+        { index: 12, value: 'de ' + ano.substring(0,3) },
+        { index: 13, value: ano.substring(3) },
+        { index: 14, value: '.' },
+        { index: 15, value: nome },
+      ];
+      xml = substituirPorIndice(xml, mapa);
+
+    } else if (tipo === 'revogacao') {
+      const nome = d.nome.toUpperCase();
+      const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
+      const mapa = [
+        { index: 0,  value: nome },
+        { index: 1,  value: 'brasileiro(a)' },
+        { index: 2,  value: d.estado_civil },
+        { index: 3,  value: d.profissao },
+        { index: 4,  value: d.rg },
+        { index: 5,  value: d.cpf },
+        { index: 6,  value: enderecoCompleto },
+        { index: 7,  value: d.email },
+        { index: 8,  value: fin.numeroProcesso || '' },
+        { index: 9,  value: 'São Paulo, ' + dia + ' de ' + mes + ' de ' + ano + '.' },
+        { index: 10, value: nome },
+      ];
+      xml = substituirPorIndice(xml, mapa);
+
+    } else if (tipo === 'residencia_propria') {
+      const nome = d.nome.toUpperCase();
+      const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
+      const mapa = [
+        { index: 0,  value: nome },
+        { index: 1,  value: 'brasileiro(a)' },
+        { index: 2,  value: d.estado_civil },
+        { index: 3,  value: d.profissao },
+        { index: 4,  value: d.rg },
+        { index: 5,  value: 'SSP/' + d.estado },
+        { index: 6,  value: d.cpf },
+        { index: 7,  value: enderecoCompleto },
+        { index: 8,  value: d.email },
+        { index: 9,  value: enderecoCompleto },
+        { index: 10, value: '.' },
+      ];
+      xml = substituirPorIndice(xml, mapa);
+
+    } else if (tipo === 'amaisa') {
+      const nome = d.nome.toUpperCase();
+      const nomeAmaisa = (fin.nomeAmaisa || '').toUpperCase();
+      const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
+      // Calcular tempo de união a partir da data
+      let anosUniao = '', mesesUniao = '';
+      if (fin.dataUniao) {
+        const [diaU, mesU, anoU] = fin.dataUniao.split('/').map(Number);
+        const inicio = new Date(anoU, mesU - 1, diaU);
+        const agora = new Date();
+        let diffMeses = (agora.getFullYear() - inicio.getFullYear()) * 12 + (agora.getMonth() - inicio.getMonth());
+        anosUniao = String(Math.floor(diffMeses / 12));
+        mesesUniao = String(diffMeses % 12);
+      }
+      const mapa = [
+        // Dados do(a) companheiro(a) - RED[0-6]
+        { index: 0,  value: nomeAmaisa.split(' ')[0] + ' ' },
+        { index: 1,  value: nomeAmaisa.split(' ').slice(1).join(' ') },
+        { index: 2,  value: d.rg },
+        { index: 3,  value: 'SSP/' + d.estado },
+        { index: 4,  value: d.cpf },
+        { index: 5,  value: enderecoCompleto },
+        { index: 6,  value: d.email },
+        // Tempo de união - RED[7-13]
+        { index: 7,  value: anosUniao },
+        { index: 8,  value: ' ' },
+        { index: 9,  value: anosUniao === '1' ? 'ano' : 'anos' },
+        { index: 10, value: ' ' },
+        { index: 11, value: 'e ' },
+        { index: 12, value: mesesUniao },
+        { index: 13, value: ' meses' },
+        // Dados do cliente - RED[14-23]
+        { index: 14, value: nome.split(' ')[0] },
+        { index: 15, value: ' ' + nome.split(' ').slice(1).join(' ') },
+        { index: 16, value: d.rg },
+        { index: 17, value: 'SSP' },
+        { index: 18, value: '/' },
+        { index: 19, value: d.estado },
+        { index: 20, value: d.cpf },
+        { index: 21, value: '' },
+        { index: 22, value: '' },
+        { index: 23, value: '' },
+        // Data - RED[24-33]
+        { index: 24, value: 'São Paulo, ' },
+        { index: 25, value: dia },
+        { index: 26, value: ' de' },
+        { index: 27, value: ' ' },
+        { index: 28, value: mes },
+        { index: 29, value: ' ' },
+        { index: 30, value: 'de' },
+        { index: 31, value: ' ' },
+        { index: 32, value: ano.substring(0,3) },
+        { index: 33, value: ano.substring(3) },
+        { index: 34, value: '' },
+        // Assinatura - RED[35-36]
+        { index: 35, value: nome.split(' ')[0] },
+        { index: 36, value: ' ' + nome.split(' ').slice(1).join(' ') },
+      ];
+      xml = substituirPorIndice(xml, mapa);
+
+    } else if (tipo === 'proprietario') {
+      const nomeLocador = d.nome.toUpperCase();
+      const nomeLocatario = (fin.nomeLocatario || '').toUpperCase();
+      const cpfLocatario = fin.cpfLocatario || '';
+      const enderecoLocador = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
+      const orgao = d.orgao_expeditor || ('SSP/' + d.estado);
+      const mapa = [
+        { index: 0,  value: nomeLocador.split(' ')[0] + ' ' },
+        { index: 1,  value: nomeLocador.split(' ').slice(1).join(' ') },
+        { index: 2,  value: 'brasileiro(a)' },
+        { index: 3,  value: d.rg },
+        { index: 4,  value: orgao },
+        { index: 5,  value: d.cpf },
+        { index: 6,  value: enderecoLocador },
+        // Endereço do imóvel - RED[7-9] (fixo no template, mantém texto original)
+        { index: 7,  value: 'Rua Barra Funda, ' },
+        { index: 8,  value: '' },
+        { index: 9,  value: ', Barra Funda, São Paulo – SP, CEP 000' },
+        // Locatário - RED[10-11]
+        { index: 10, value: nomeLocatario },
+        { index: 11, value: cpfLocatario },
+        // Data - RED[12-18]
+        { index: 12, value: 'São Paulo, ' },
+        { index: 13, value: dia },
+        { index: 14, value: ' de ' },
+        { index: 15, value: mes },
+        { index: 16, value: ' de' },
+        { index: 17, value: ' ' + ano },
+        { index: 18, value: '.' },
+        // Assinatura - RED[19]
+        { index: 19, value: nomeLocador },
+      ];
+      xml = substituirPorIndice(xml, mapa);
     }
 
     zip.file('word/document.xml', xml);
     const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
-    const nomeArq = tipo === 'procuracao'
-      ? 'Procuracao_' + d.nome.replace(/\s+/g,'_') + '.docx'
-      : 'Contrato_' + d.nome.replace(/\s+/g,'_') + '.docx';
+    const nomesArquivo = {
+      procuracao: 'Procuracao_',
+      contrato: 'Contrato_',
+      declaracao: 'Declaracao_Hipossuficiencia_',
+      revogacao: 'Revogacao_Mandato_',
+      residencia_propria: 'Declaracao_Residencia_',
+      amaisa: 'Declaracao_Amaisa_',
+      proprietario: 'Declaracao_Proprietario_',
+    };
+    const nomeArq = (nomesArquivo[tipo] || 'Documento_') + d.nome.replace(/\s+/g,'_') + '.docx';
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', 'attachment; filename="' + nomeArq + '"');
