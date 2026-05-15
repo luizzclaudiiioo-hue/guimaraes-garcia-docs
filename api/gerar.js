@@ -21,6 +21,10 @@ function removeRedColor(rPrInner) {
     .replace(/<w:color[^>]*>[\s\S]*?<\/w:color>/g, '');
 }
 
+function esc(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
 function substituirPorIndice(xml, mapa) {
   let redIdx = 0;
   return xml.replace(/(<w:r)([ >])([\s\S]*?)(<\/w:r>)/g, (match, tag, sep, inner, close) => {
@@ -28,9 +32,7 @@ function substituirPorIndice(xml, mapa) {
     if (rPrMatch && isRed(rPrMatch[0])) {
       const currentIdx = redIdx++;
       const entry = mapa.find(m => m.index === currentIdx);
-      const valor = entry !== undefined
-        ? (entry.value || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-        : '';
+      const valor = entry !== undefined ? esc(entry.value) : '';
       const newRPr = rPrMatch[1] + removeRedColor(rPrMatch[2]) + rPrMatch[3];
       let newInner = inner.replace(/(<w:rPr>)([\s\S]*?)(<\/w:rPr>)/, newRPr);
       newInner = newInner.replace(/<w:t[^>]*>[\s\S]*?<\/w:t>/, `<w:t xml:space="preserve">${valor}</w:t>`);
@@ -38,6 +40,13 @@ function substituirPorIndice(xml, mapa) {
     }
     return match;
   });
+}
+
+// Insere texto após um run específico no XML
+function inserirTextoAposRun(xml, textoReferencia, novoTexto, formatoRun) {
+  const escaped = textoReferencia.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(<w:r[ >][\\s\\S]*?<w:t[^>]*>${escaped}<\\/w:t><\\/w:r>)`);
+  return xml.replace(regex, `$1${formatoRun(novoTexto)}`);
 }
 
 export default async function handler(req, res) {
@@ -92,59 +101,55 @@ export default async function handler(req, res) {
       xml = substituirPorIndice(xml, mapa);
 
     } else {
-      // Contrato — mapeamento exato baseado na análise do template:
-      // Para 6 — dados cliente:
-      // RED[0]: nome, RED[1]: 'brasileir', RED[2]: 'o', RED[3]: '(a)',
-      // RED[4]: estado_civil, RED[5]: profissão, RED[6]: CPF,
-      // RED[7]: endereço completo, RED[8]: email
-      // Para 13 — processo: RED[9]: número processo
-      // Para 19 — honorários (muitos runs):
-      // RED[10-14]: valor total (ex: R$ 10.000,00)
-      // RED[15-20]: valor total por extenso (ex: dez mil reais)
-      // RED[21-25]: valor entrada
-      // RED[26-29]: valor entrada por extenso
-      // RED[30]: num parcelas
-      // RED[31-33]: num parcelas por extenso
-      // RED[34-35]: valor parcela
-      // RED[36-40]: valor parcela por extenso
-      // Para 91 — data: RED[41]: dia1, RED[42]: dia2, RED[43]: espaço, RED[44]: mês
-      // Para 96 — assinatura: RED[45]: nome
-      // Tabela: RED[46-65]: parcelas e total
-
       const parcelas = fin.parcelas || [];
+      const nome = d.nome.toUpperCase();
+      const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
+      const rgCompleto = d.rg + (d.orgao_expeditor ? ', expedido pela ' + d.orgao_expeditor : '');
 
-      // Montar valor total como string com runs separados
-      // O template tem o valor em múltiplos runs: 'R$', ' ', '10', '.0', '00,00'
-      // Vamos colocar tudo no primeiro run e zerar os demais
-      const valorTotalStr = fin.valorTotal; // ex: R$ 10.000,00
-      const valorTotalExtensoStr = fin.valorTotalExtenso; // ex: dez mil reais
-      const entrada = parcelas[0] ? parcelas[0].valor : '';
+      // Para 6: RED[0]=nome, RED[1-3]=brasileiro(a), RED[4]=estado_civil,
+      // RED[5]=profissao, RED[6]=CPF, RED[7]=endereço, RED[8]=email
+      // Inserimos RG no campo CPF: "portador(a) do RG nº XXXX, inscrito(a) no CPF sob o nº CPF"
+      // O template tem ", inscrito(a) no CPF sob o nº" como texto fixo
+      // então colocamos RG antes do CPF modificando o texto fixo via substituição direta
+
+      // Substituir o texto fixo " inscrito(a) no CPF sob o nº" para incluir RG
+      xml = xml.replace(
+        /\xa0inscrito\(a\) no CPF sob o n[^<]*/g,
+        `, portador(a) do RG nº ${esc(rgCompleto)}, inscrito(a) no CPF sob o nº`
+      );
+
+      // Honorários — RED[10-11]: valor total, RED[12-20]: extenso
+      // RED[21-25]: entrada, RED[26-31]: entrada extenso
+      // RED[30]: num parcelas, RED[31-33]: extenso
+      // RED[34-35]: valor parcela, RED[36-43]: extenso
+      // Para 91 — RED[41,42]: dia, RED[43,44]: mês
+      // Para 96 — RED[45]: nome assinatura
+      // Tabela — RED[46+]: parcelas
+
+      const entrada = parcelas[0]?.valor || '';
       const numParc = fin.numParcelasRestantes;
       const valorParc = fin.valorParcela;
 
-      const nome = d.nome.toUpperCase();
-      const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
-
       const mapa = [
         // Para 6 — cliente
-        { index: 0,  value: nome },
-        { index: 1,  value: 'brasileiro(a)' },
-        { index: 2,  value: '' },
-        { index: 3,  value: '' },
-        { index: 4,  value: d.estado_civil },
-        { index: 5,  value: d.profissao },
-        { index: 6,  value: d.cpf },
-        { index: 7,  value: enderecoCompleto },
-        { index: 8,  value: d.email },
+        { index: 0, value: nome },
+        { index: 1, value: 'brasileiro(a)' },
+        { index: 2, value: '' },
+        { index: 3, value: '' },
+        { index: 4, value: d.estado_civil },
+        { index: 5, value: d.profissao },
+        { index: 6, value: d.cpf },
+        { index: 7, value: enderecoCompleto },
+        { index: 8, value: d.email },
         // Para 13 — processo
-        { index: 9,  value: fin.numeroProcesso },
-        // Para 19 — honorários (valor total em múltiplos runs)
-        { index: 10, value: valorTotalStr },
+        { index: 9, value: fin.numeroProcesso },
+        // Para 19 — valor total (runs 10-11 = R$ VALOR, runs 12-20 = (extenso))
+        { index: 10, value: fin.valorTotal },
         { index: 11, value: '' },
         { index: 12, value: '' },
         { index: 13, value: '' },
         { index: 14, value: '' },
-        { index: 15, value: ' (' + valorTotalExtensoStr + ')' },
+        { index: 15, value: '(' + fin.valorTotalExtenso + ')' },
         { index: 16, value: '' },
         { index: 17, value: '' },
         { index: 18, value: '' },
@@ -173,7 +178,7 @@ export default async function handler(req, res) {
         { index: 38, value: '' },
         { index: 39, value: '' },
         { index: 40, value: '' },
-        // Para 91 — data
+        // Para 91 — data: RED[41]='0', RED[42]='7' → dia / RED[43]=' ', RED[44]='abril '
         { index: 41, value: dia },
         { index: 42, value: '' },
         { index: 43, value: ' ' },
@@ -184,30 +189,23 @@ export default async function handler(req, res) {
 
       xml = substituirPorIndice(xml, mapa);
 
-      // Tabela — substituir diretamente no XML da tabela
-      // RED[46-65] são os campos da tabela
-      // Vamos fazer uma segunda passagem só para a tabela
-      // Já foram zerados pelo substituirPorIndice acima (valor ''),
-      // então precisamos preencher com os dados das parcelas
-      
-      // Reprocessar a tabela com dados corretos
+      // Tabela — substituição direta por posição
+      // Estrutura: 5 linhas, col 0-2 esquerda, col 4-6 direita
+      // Linha 0: parcela[0] | parcela[metade]
+      // Linha 1: parcela[1] | parcela[metade+1]
+      // ...
+      // Última linha direita col4='Total:', col5=valorTotal
       const metade = Math.ceil(parcelas.length / 2);
       const esq = parcelas.slice(0, metade);
       const dir = parcelas.slice(metade);
 
-      // Build table replacement map starting at RED[46]
-      const tabelaMapa = [];
       let tIdx = 46;
-      
-      // Row 0: esq[0] cols 0,1,2 | dir[0] cols 4,5,6
-      // Row 1: esq[1] | dir[1]
-      // etc.
-      // Last row right: Total col5
-      
-      esq.forEach((p, i) => {
-        tabelaMapa.push({ index: tIdx++, value: p.label + ':' });
-        tabelaMapa.push({ index: tIdx++, value: p.valor });
-        tabelaMapa.push({ index: tIdx++, value: p.data });
+      const tabelaMapa = [];
+
+      for (let i = 0; i < esq.length; i++) {
+        tabelaMapa.push({ index: tIdx++, value: esq[i].label + ':' });
+        tabelaMapa.push({ index: tIdx++, value: esq[i].valor });
+        tabelaMapa.push({ index: tIdx++, value: esq[i].data });
         if (dir[i]) {
           tabelaMapa.push({ index: tIdx++, value: dir[i].label + ':' });
           tabelaMapa.push({ index: tIdx++, value: dir[i].valor });
@@ -215,13 +213,12 @@ export default async function handler(req, res) {
         } else {
           tabelaMapa.push({ index: tIdx++, value: 'Total:' });
           tabelaMapa.push({ index: tIdx++, value: fin.valorTotal });
-          tIdx++; // empty
+          tIdx++;
         }
-      });
+      }
 
-      // If even number of parcelas, add total row
       if (parcelas.length % 2 === 0) {
-        tIdx += 3; // skip left cols
+        tIdx += 3;
         tabelaMapa.push({ index: tIdx++, value: 'Total:' });
         tabelaMapa.push({ index: tIdx++, value: fin.valorTotal });
       }
@@ -231,12 +228,12 @@ export default async function handler(req, res) {
 
     zip.file('word/document.xml', xml);
     const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
-    const nome = tipo === 'procuracao'
+    const nomeArq = tipo === 'procuracao'
       ? 'Procuracao_' + d.nome.replace(/\s+/g,'_') + '.docx'
       : 'Contrato_' + d.nome.replace(/\s+/g,'_') + '.docx';
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    res.setHeader('Content-Disposition', 'attachment; filename="' + nome + '"');
+    res.setHeader('Content-Disposition', 'attachment; filename="' + nomeArq + '"');
     return res.status(200).send(buf);
   } catch (e) {
     return res.status(500).json({ error: e.message });
