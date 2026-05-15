@@ -63,7 +63,7 @@ export default function App() {
   const [tipo, setTipo] = useState(null);
   const [texto, setTexto] = useState("");
   const [dados, setDados] = useState(null);
-  const [fin, setFin] = useState({ numeroProcesso: "", valorTotal: "", valorTotalExtenso: "", valorParcela: "", numParcelasRestantes: "", percentualExito: "10% (dez por cento)" });
+  const [fin, setFin] = useState({ numeroProcesso: "", valorTotal: "", valorTotalExtenso: "", valorEntrada: "", valorParcela: "", numParcelasRestantes: "", percentualExito: "10% (dez por cento)" });
   const [etapa, setEtapa] = useState("tipo");
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
@@ -117,7 +117,7 @@ export default function App() {
 
   function resetar() {
     setTipo(null); setTexto(""); setDados(null); setErro("");
-    setFin({ numeroProcesso: "", valorTotal: "", valorTotalExtenso: "", valorParcela: "", numParcelasRestantes: "", percentualExito: "10% (dez por cento)" });
+    setFin({ numeroProcesso: "", valorTotal: "", valorTotalExtenso: "", valorEntrada: "", valorParcela: "", numParcelasRestantes: "", percentualExito: "10% (dez por cento)" });
     setEtapa("tipo");
   }
 
@@ -226,6 +226,7 @@ export default function App() {
                 <SecTitle>Honorários</SecTitle>
                 <Campo label="Valor total (ex: R$ 10.000,00)" value={fin.valorTotal} onChange={(v) => setFin(p => ({ ...p, valorTotal: v }))} />
                 <Campo label="Valor total por extenso" value={fin.valorTotalExtenso} onChange={(v) => setFin(p => ({ ...p, valorTotalExtenso: v }))} placeholder="dez mil reais" />
+                <Campo label="Valor da entrada" value={fin.valorEntrada} onChange={(v) => setFin(p => ({ ...p, valorEntrada: v }))} placeholder="R$ 0,00" />
                 <Campo label="Valor de cada parcela" value={fin.valorParcela} onChange={(v) => setFin(p => ({ ...p, valorParcela: v }))} placeholder="R$ 1.000,00" />
                 <Campo label="Nº de parcelas restantes" value={fin.numParcelasRestantes} onChange={(v) => setFin(p => ({ ...p, numParcelasRestantes: v }))} placeholder="5" />
                 <Campo label="Percentual de êxito" full value={fin.percentualExito} onChange={(v) => setFin(p => ({ ...p, percentualExito: v }))} />
