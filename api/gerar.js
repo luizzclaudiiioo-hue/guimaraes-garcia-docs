@@ -196,7 +196,6 @@ export default async function handler(req, res) {
         // RED[39-43]=extenso parcela — automático
         { index: 39, value: ' (' },
         { index: 40, value: parcelaExtenso + ')' },
-        { index: 40, value: '' },
         { index: 41, value: '' },
         { index: 42, value: '' },
         { index: 43, value: '' },
