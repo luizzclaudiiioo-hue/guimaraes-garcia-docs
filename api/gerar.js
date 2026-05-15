@@ -109,8 +109,8 @@ export default async function handler(req, res) {
       const nome = d.nome.toUpperCase();
       const orgao = d.orgao_expeditor || ('SSP/' + d.estado);
       const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
-      const parcelas = fin.parcelas || [];
-      const entrada = parcelas[0]?.valor || '';
+      
+      const entrada = fin.valorEntrada || "";
       const numParc = fin.numParcelasRestantes;
       const numParcExtenso = numExtenso(numParc);
       const stripRS = v => (v || '').replace(/^R\$\s*/, '');
