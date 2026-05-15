@@ -111,9 +111,9 @@ export default async function handler(req, res) {
         { index: 7,  value: '' },
         { index: 8,  value: d.rg },
         { index: 9,  value: d.cpf },
-        { index: 10, value: d.rua },
-        { index: 11, value: d.numero },
-        { index: 12, value: d.bairro },
+        { index: 10, value: d.rua + ', ' + d.numero + ', ' + d.bairro },
+        { index: 11, value: '' },
+        { index: 12, value: '' },
         { index: 13, value: '' },
         { index: 14, value: '' },
         { index: 15, value: d.cidade + ' ' },
@@ -129,6 +129,9 @@ export default async function handler(req, res) {
         { index: 25, value: '' },
       ];
       xml = substituirPorIndice(xml, mapa);
+
+      // Remove vírgulas duplicadas geradas por campos vazios no endereço
+      xml = xml.replace(/,\s*,\s*,/g, ',').replace(/,\s*,/g, ',');
 
     } else {
       const nome = d.nome.toUpperCase();
