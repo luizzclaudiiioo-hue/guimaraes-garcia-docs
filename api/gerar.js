@@ -4,6 +4,17 @@ const GITHUB_USER = 'luizzclaudiiioo-hue';
 const GITHUB_REPO = 'guimaraes-garcia-docs';
 const GITHUB_BRANCH = 'main';
 
+const EXTENSO = {
+  1: 'uma', 2: 'duas', 3: 'três', 4: 'quatro', 5: 'cinco',
+  6: 'seis', 7: 'sete', 8: 'oito', 9: 'nove', 10: 'dez',
+  11: 'onze', 12: 'doze', 13: 'treze', 14: 'quatorze', 15: 'quinze',
+  16: 'dezesseis', 17: 'dezessete', 18: 'dezoito', 19: 'dezenove', 20: 'vinte'
+};
+
+function numExtenso(n) {
+  return EXTENSO[parseInt(n)] || n;
+}
+
 async function fetchTemplate(filename) {
   const url = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}/templates/${filename}`;
   const res = await fetch(url);
@@ -95,36 +106,13 @@ export default async function handler(req, res) {
       xml = substituirPorIndice(xml, mapa);
 
     } else {
-      // CONTRATO
-      // Para 6:
-      // RED[0]=nome | RED[1-3]=brasileiro(a) | RED[4]=estadoCivil
-      // RED[5]=profissão | RED[6]=RG | RED[7]=orgao+',' | RED[8]=' '
-      // RED[9]=CPF | RED[10]=endereço | RED[11]=email
-      // Para 13: RED[12]=processo
-      // Para 19 — texto fixo já tem 'R$' e 'parcelas de R$':
-      // RED[13]='R$' → manter como 'R$' (só tirar cor)
-      // RED[14]=' ' → manter
-      // RED[15-17]= partes do valor total (ex: '10', '.0', '00,00') → colocar valor no [15], zerar [16][17]
-      // RED[18]=' (' → manter
-      // RED[19-23]= extenso total → colocar no [19], zerar demais
-      // RED[24-28]= valor entrada → colocar no [24], zerar demais
-      // RED[29-32]= extenso entrada → zerar
-      // RED[33]= num parcelas
-      // RED[34]=' (' → manter
-      // RED[35]= extenso num parcelas → zerar
-      // RED[36]=') parcelas de R$ ' → manter
-      // RED[37-38]= valor parcela → colocar no [37], zerar [38]
-      // RED[39-43]= extenso parcela → zerar
-      // Para 86: RED[44-54]=data
-      // Para 91: RED[55]=nome
-
       const nome = d.nome.toUpperCase();
       const orgao = d.orgao_expeditor || ('SSP/' + d.estado);
       const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
       const parcelas = fin.parcelas || [];
       const entrada = parcelas[0]?.valor || '';
-
-      // Strip 'R$ ' prefix from values if present (template already has 'R$' fixed)
+      const numParc = fin.numParcelasRestantes;
+      const numParcExtenso = numExtenso(numParc);
       const stripRS = v => (v || '').replace(/^R\$\s*/, '');
 
       const mapa = [
@@ -143,50 +131,47 @@ export default async function handler(req, res) {
         { index: 11, value: d.email },
         // Para 13
         { index: 12, value: fin.numeroProcesso },
-        // Para 19
-        // RED[13]='R$' RED[14]=' ' já são fixos — só remover cor, manter texto
+        // Para 19 — valor total
         { index: 13, value: 'R$' },
         { index: 14, value: ' ' },
-        // RED[15-17]: número do valor total (sem R$)
         { index: 15, value: stripRS(fin.valorTotal) },
         { index: 16, value: '' },
         { index: 17, value: '' },
-        // RED[18]=' (' fixo, RED[19-23]: extenso total
         { index: 18, value: ' (' },
         { index: 19, value: fin.valorTotalExtenso + ')' },
         { index: 20, value: '' },
         { index: 21, value: '' },
         { index: 22, value: '' },
         { index: 23, value: '' },
-        // RED[24-28]: valor entrada (sem R$, texto fixo já tem 'R$')
+        // entrada
         { index: 24, value: stripRS(entrada) },
         { index: 25, value: '' },
         { index: 26, value: '' },
         { index: 27, value: '' },
         { index: 28, value: '' },
-        // RED[29-32]: extenso entrada — zerar
+        // extenso entrada — zerar
         { index: 29, value: '' },
         { index: 30, value: '' },
         { index: 31, value: '' },
         { index: 32, value: '' },
-        // RED[33]: num parcelas restantes
-        { index: 33, value: fin.numParcelasRestantes },
+        // num parcelas
+        { index: 33, value: numParc },
         // RED[34]=' (' fixo
         { index: 34, value: ' (' },
-        // RED[35]: extenso num parcelas — zerar
-        { index: 35, value: '' },
+        // RED[35]: extenso num parcelas — gerado automaticamente
+        { index: 35, value: numParcExtenso },
         // RED[36]=') parcelas de R$ ' fixo
         { index: 36, value: ') parcelas de R$ ' },
-        // RED[37-38]: valor parcela (sem R$)
+        // valor parcela
         { index: 37, value: stripRS(fin.valorParcela) },
         { index: 38, value: '' },
-        // RED[39-43]: extenso parcela — zerar
+        // extenso valor parcela — zerar
         { index: 39, value: '' },
         { index: 40, value: '' },
         { index: 41, value: '' },
         { index: 42, value: '' },
         { index: 43, value: '' },
-        // Para 86 — data completa
+        // Para 86 — data
         { index: 44, value: 'São Paulo' },
         { index: 45, value: ', ' },
         { index: 46, value: dia },
