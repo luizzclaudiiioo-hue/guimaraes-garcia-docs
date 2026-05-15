@@ -2,7 +2,7 @@
 
 App para geração automática de Procurações e Contratos de Honorários.
 
-## Como publicar na Vercel 
+## Como publicar na Vercel
 
 1. Faça upload desta pasta para um repositório no GitHub
 2. Acesse vercel.com e importe o repositório
