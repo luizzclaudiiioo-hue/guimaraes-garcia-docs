@@ -178,9 +178,9 @@ export default async function handler(req, res) {
         { index: 25, value: '' },
         { index: 26, value: '' },
         { index: 27, value: '' },
-        { index: 28, value: '' },
+        { index: 28, value: ' (' },
         // RED[29-32]=extenso entrada — automático
-        { index: 29, value: '(' + entradaExtenso + ')' },
+        { index: 29, value: entradaExtenso + ')' },
         { index: 30, value: '' },
         { index: 31, value: '' },
         { index: 32, value: '' },
@@ -196,7 +196,8 @@ export default async function handler(req, res) {
         { index: 37, value: stripRS(fin.valorParcela) },
         { index: 38, value: '' },
         // RED[39-43]=extenso parcela — automático
-        { index: 39, value: '(' + parcelaExtenso + ')' },
+        { index: 39, value: ' (' },
+        { index: 40, value: parcelaExtenso + ')' },
         { index: 40, value: '' },
         { index: 41, value: '' },
         { index: 42, value: '' },
