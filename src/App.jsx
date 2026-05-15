@@ -35,11 +35,11 @@ function parcelasVazias(n) {
   }));
 }
 
-const GOLD = "#c9a84c";
-const GOLD_L = "#e8c96b";
+const GOLD = "#5a7a5a";
+const GOLD_L = "#7a9e6e";
 
-const sLabel = { display: "block", fontSize: 11, color: "#8a9bb0", marginBottom: 5, fontFamily: "sans-serif", letterSpacing: 1, textTransform: "uppercase" };
-const sInput = (vazio) => ({ width: "100%", background: vazio ? "rgba(180,60,60,0.12)" : "rgba(0,0,0,0.3)", border: vazio ? "1px solid rgba(200,80,80,0.4)" : "1px solid rgba(201,168,76,0.2)", borderRadius: 8, color: "#e8e0d0", fontSize: 14, padding: "9px 12px", fontFamily: "sans-serif", outline: "none", boxSizing: "border-box" });
+const sLabel = { display: "block", fontSize: 11, color: "#555555", marginBottom: 5, fontFamily: "sans-serif", letterSpacing: 1, textTransform: "uppercase" };
+const sInput = (vazio) => ({ width: "100%", background: vazio ? "rgba(180,60,60,0.10)" : "rgba(0,0,0,0.06)", border: vazio ? "1px solid rgba(200,80,80,0.5)" : "1px solid rgba(90,122,90,0.3)", borderRadius: 8, color: "#2a2a2a", fontSize: 14, padding: "9px 12px", fontFamily: "sans-serif", outline: "none", boxSizing: "border-box" });
 const sBtn = (dis) => ({ marginTop: 20, width: "100%", padding: "14px 0", background: dis ? "rgba(201,168,76,0.3)" : `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, border: "none", borderRadius: 10, color: dis ? "#8a7a50" : "#1a2940", fontSize: 15, fontWeight: "bold", cursor: dis ? "not-allowed" : "pointer", fontFamily: "sans-serif", letterSpacing: 1 });
 
 function Campo({ label, value, onChange, full, placeholder }) {
@@ -48,14 +48,16 @@ function Campo({ label, value, onChange, full, placeholder }) {
       <label style={sLabel}>{label}</label>
       <input value={value || ""} placeholder={placeholder || ""} onChange={(e) => onChange(e.target.value)} style={sInput(!value)} />
     </div>
+    </>
   );
 }
 
 function SecTitle({ children }) {
   return (
-    <div style={{ gridColumn: "1 / -1", borderBottom: "1px solid rgba(201,168,76,0.2)", paddingBottom: 6, marginTop: 12, marginBottom: 2 }}>
+    <div style={{ gridColumn: "1 / -1", borderBottom: "1px solid rgba(90,122,90,0.25)", paddingBottom: 6, marginTop: 12, marginBottom: 2 }}>
       <span style={{ fontSize: 11, color: GOLD, letterSpacing: 2, textTransform: "uppercase", fontFamily: "sans-serif" }}>{children}</span>
     </div>
+    </>
   );
 }
 
@@ -132,48 +134,55 @@ export default function App() {
     { key: "email", label: "E-mail", full: true },
   ];
 
-  const steps = tipo === "contrato" ? ["Documento","Texto","Dados","Honorários","Pronto"] : ["Documento","Texto","Dados","Pronto"];
-  const etapaIdx = { tipo: 0, input: 1, revisao: 2, financeiro: 3, gerando: tipo === "contrato" ? 3 : 2, pronto: tipo === "contrato" ? 4 : 3 }[etapa] ?? 0;
+  const tipoTemFinanceiro = tipo === "contrato";
+  const tipoTemDadosEspeciais = ["amaisa","proprietario","revogacao"].includes(tipo);
+  const steps = tipoTemFinanceiro ? ["Documento","Texto","Dados","Honorários","Pronto"] : tipoTemDadosEspeciais ? ["Documento","Texto","Dados","Extras","Pronto"] : ["Documento","Texto","Dados","Pronto"];
+  const etapaIdx = { tipo: 0, input: 1, revisao: 2, financeiro: 3, extras: 3, gerando: tipoTemFinanceiro ? 3 : tipoTemDadosEspeciais ? 3 : 2, pronto: tipoTemFinanceiro ? 4 : tipoTemDadosEspeciais ? 4 : 3 }[etapa] ?? 0;
 
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0f1923 0%, #1a2940 100%)", fontFamily: "Georgia, serif", color: "#e8e0d0", padding: "32px 16px" }}>
+    <>
+    <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@700&display=swap" rel="stylesheet" />
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #e8e8e8 0%, #d4d4d4 100%)", fontFamily: "Georgia, serif", color: "#2a2a2a", padding: "32px 16px" }}>
       <div style={{ maxWidth: 700, margin: "0 auto" }}>
 
         <div style={{ textAlign: "center", marginBottom: 36 }}>
-          <div style={{ display: "inline-block", background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: 12, letterSpacing: 4, textTransform: "uppercase", marginBottom: 8 }}>
-            Guimarães & Garcia · Advogados
+          <div style={{ display: "inline-block", background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: 18, letterSpacing: 2, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", marginBottom: 0 }}>
+            GUIMARÃES & GARCIA - SOCIEDADE DE ADVOGADOS
           </div>
-          <h1 style={{ fontSize: 26, fontWeight: "normal", color: "#f0ead8", margin: "0 0 6px", letterSpacing: 1 }}>Gerador de Documentos</h1>
-          <p style={{ color: "#8a9bb0", fontSize: 13, margin: 0, fontFamily: "sans-serif" }}>Procurações e Contratos de Honorários</p>
         </div>
 
         {etapa !== "tipo" && (
           <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 28, flexWrap: "wrap" }}>
             {steps.map((s, i) => (
-              <div key={s} style={{ padding: "5px 14px", borderRadius: 20, fontSize: 12, fontFamily: "sans-serif", background: i < etapaIdx ? "#1e6b45" : i === etapaIdx ? GOLD : "rgba(255,255,255,0.07)", color: i <= etapaIdx ? "#fff" : "#5a6a7a", transition: "all 0.3s" }}>
+              <div key={s} style={{ padding: "5px 14px", borderRadius: 20, fontSize: 12, fontFamily: "sans-serif", background: i < etapaIdx ? "#4a7a4a" : i === etapaIdx ? GOLD : "rgba(255,255,255,0.07)", color: i <= etapaIdx ? "#fff" : "#666666", transition: "all 0.3s" }}>
                 {i < etapaIdx ? "✓ " : ""}{s}
               </div>
             ))}
           </div>
         )}
 
-        <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(201,168,76,0.2)", borderRadius: 16, padding: 32, backdropFilter: "blur(10px)" }}>
+        <div style={{ background: "rgba(255,255,255,0.85)", border: "1px solid rgba(90,122,90,0.25)", borderRadius: 16, padding: 32, backdropFilter: "blur(10px)", boxShadow: "0 2px 20px rgba(0,0,0,0.08)" }}>
 
           {etapa === "tipo" && (
             <>
-              <p style={{ textAlign: "center", color: "#8a9bb0", fontFamily: "sans-serif", fontSize: 14, marginTop: 0, marginBottom: 28 }}>Qual documento deseja gerar?</p>
+              <p style={{ textAlign: "center", color: "#555555", fontFamily: "sans-serif", fontSize: 14, marginTop: 0, marginBottom: 28 }}>Qual documento deseja gerar?</p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                 {[
                   { id: "procuracao", icon: "📋", title: "Procuração", desc: "Instrumento de mandato para representação judicial" },
                   { id: "contrato", icon: "⚖️", title: "Contrato de Honorários", desc: "Contrato de prestação de serviços advocatícios" },
+                  { id: "declaracao", icon: "📝", title: "Declaração de Justiça Gratuita", desc: "Declaração de hipossuficiência econômica" },
+                  { id: "revogacao", icon: "🚫", title: "Revogação de Mandato", desc: "Revogação de procuração outorgada anteriormente" },
+                  { id: "residencia_propria", icon: "🏠", title: "Declaração de Residência Própria", desc: "Declaração de residência e domicílio" },
+                  { id: "amaisa", icon: "💑", title: "Declaração de Amásia", desc: "Declaração de união estável" },
+                  { id: "proprietario", icon: "🔑", title: "Declaração Residencial (Proprietário)", desc: "Declaração do proprietário ao locatário" },
                 ].map((op) => (
                   <button key={op.id} onClick={() => { setTipo(op.id); setEtapa("input"); }}
-                    style={{ background: "rgba(0,0,0,0.2)", border: "1px solid rgba(201,168,76,0.25)", borderRadius: 14, padding: "24px 16px", cursor: "pointer", textAlign: "center", color: "#e8e0d0", fontFamily: "Georgia, serif" }}
+                    style={{ background: "rgba(255,255,255,0.7)", border: "1px solid rgba(90,122,90,0.25)", borderRadius: 14, padding: "24px 16px", cursor: "pointer", textAlign: "center", color: "#2a2a2a", fontFamily: "Georgia, serif" }}
                     onMouseEnter={e => e.currentTarget.style.borderColor = GOLD}
                     onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(201,168,76,0.25)"}>
                     <div style={{ fontSize: 36, marginBottom: 10 }}>{op.icon}</div>
-                    <div style={{ fontSize: 16, fontWeight: "bold", marginBottom: 8, color: GOLD_L }}>{op.title}</div>
-                    <div style={{ fontSize: 12, color: "#8a9bb0", fontFamily: "sans-serif", lineHeight: 1.5 }}>{op.desc}</div>
+                    <div style={{ fontSize: 16, fontWeight: "bold", marginBottom: 8, color: GOLD }}>{op.title}</div>
+                    <div style={{ fontSize: 12, color: "#555555", fontFamily: "sans-serif", lineHeight: 1.5 }}>{op.desc}</div>
                   </button>
                 ))}
               </div>
@@ -184,11 +193,11 @@ export default function App() {
             <>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                 <label style={{ ...sLabel, margin: 0 }}>Texto recebido do cliente (WhatsApp)</label>
-                <button onClick={() => setEtapa("tipo")} style={{ background: "none", border: "none", color: "#5a6a7a", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif" }}>← Voltar</button>
+                <button onClick={() => setEtapa("tipo")} style={{ background: "none", border: "none", color: "#666666", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif" }}>← Voltar</button>
               </div>
               <textarea value={texto} onChange={(e) => setTexto(e.target.value)}
                 placeholder="Cole aqui a mensagem do cliente com os dados pessoais..."
-                style={{ width: "100%", minHeight: 200, background: "rgba(0,0,0,0.3)", border: "1px solid rgba(201,168,76,0.25)", borderRadius: 10, color: "#e8e0d0", fontSize: 14, padding: 16, fontFamily: "sans-serif", resize: "vertical", outline: "none", lineHeight: 1.6, boxSizing: "border-box" }} />
+                style={{ width: "100%", minHeight: 200, background: "rgba(0,0,0,0.06)", border: "1px solid rgba(90,122,90,0.3)", borderRadius: 10, color: "#2a2a2a", fontSize: 14, padding: 16, fontFamily: "sans-serif", resize: "vertical", outline: "none", lineHeight: 1.6, boxSizing: "border-box" }} />
               {erro && <p style={{ color: "#e05050", fontSize: 13, marginTop: 8, fontFamily: "sans-serif" }}>{erro}</p>}
               <button onClick={extrairDados} disabled={carregando || !texto.trim()} style={sBtn(carregando || !texto.trim())}>
                 {carregando ? "⚙️  Extraindo dados..." : "Extrair Dados →"}
@@ -200,7 +209,7 @@ export default function App() {
             <>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                 <span style={{ ...sLabel, margin: 0 }}>Confirme os dados do cliente</span>
-                <button onClick={() => setEtapa("input")} style={{ background: "none", border: "none", color: "#5a6a7a", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif" }}>← Voltar</button>
+                <button onClick={() => setEtapa("input")} style={{ background: "none", border: "none", color: "#666666", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif" }}>← Voltar</button>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 {camposCliente.map(({ key, label, full }) => (
@@ -208,7 +217,7 @@ export default function App() {
                 ))}
               </div>
               <button onClick={() => tipo === "contrato" ? setEtapa("financeiro") : gerarDoc()} style={{ ...sBtn(false), marginTop: 24 }}>
-                {tipo === "contrato" ? "Próximo: Honorários →" : "📋  Gerar Procuração (.docx)"}
+                {tipoTemFinanceiro ? "Próximo: Honorários →" : tipoTemDadosEspeciais ? "Próximo: Dados Extras →" : tipo === "declaracao" ? "📝  Gerar Declaração (.docx)" : "📋  Gerar Procuração (.docx)"}
               </button>
             </>
           )}
@@ -217,17 +226,20 @@ export default function App() {
             <>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                 <span style={{ ...sLabel, margin: 0 }}>Dados financeiros do contrato</span>
-                <button onClick={() => setEtapa("revisao")} style={{ background: "none", border: "none", color: "#5a6a7a", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif" }}>← Voltar</button>
+                <button onClick={() => setEtapa("revisao")} style={{ background: "none", border: "none", color: "#666666", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif" }}>← Voltar</button>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <SecTitle>Processo</SecTitle>
                 <Campo label="Número do processo" full value={fin.numeroProcesso} onChange={(v) => setFin(p => ({ ...p, numeroProcesso: v }))} placeholder="0000000-00.0000.0.00.0000" />
+
                 <SecTitle>Honorários</SecTitle>
                 <Campo label="Valor total (ex: R$ 10.000,00)" value={fin.valorTotal} onChange={(v) => setFin(p => ({ ...p, valorTotal: v }))} />
                 <Campo label="Valor da entrada" value={fin.valorEntrada} onChange={(v) => setFin(p => ({ ...p, valorEntrada: v }))} placeholder="R$ 0,00" />
                 <Campo label="Valor de cada parcela" value={fin.valorParcela} onChange={(v) => setFin(p => ({ ...p, valorParcela: v }))} placeholder="R$ 1.000,00" />
                 <Campo label="Nº de parcelas restantes" value={fin.numParcelasRestantes} onChange={(v) => setFin(p => ({ ...p, numParcelasRestantes: v }))} placeholder="5" />
                 <Campo label="Percentual de êxito" full value={fin.percentualExito} onChange={(v) => setFin(p => ({ ...p, percentualExito: v }))} />
+
+
               </div>
               {erro && <p style={{ color: "#e05050", fontSize: 13, marginTop: 12, fontFamily: "sans-serif" }}>{erro}</p>}
               <button onClick={gerarDoc} style={{ ...sBtn(false), marginTop: 24 }}>⚖️  Gerar Contrato (.docx)</button>
@@ -237,7 +249,7 @@ export default function App() {
           {etapa === "gerando" && (
             <div style={{ textAlign: "center", padding: "32px 0" }}>
               <div style={{ fontSize: 48, marginBottom: 16 }}>⚙️</div>
-              <p style={{ color: "#8a9bb0", fontFamily: "sans-serif" }}>Gerando documento...</p>
+              <p style={{ color: "#555555", fontFamily: "sans-serif" }}>Gerando documento...</p>
             </div>
           )}
 
@@ -245,9 +257,9 @@ export default function App() {
             <div style={{ textAlign: "center", padding: "20px 0" }}>
               <div style={{ fontSize: 56, marginBottom: 16 }}>✅</div>
               <h2 style={{ color: GOLD_L, fontWeight: "normal", marginBottom: 8 }}>
-                {tipo === "procuracao" ? "Procuração gerada!" : "Contrato gerado!"}
+                {tipo === "procuracao" ? "Procuração gerada!" : tipo === "contrato" ? "Contrato gerado!" : "Documento gerado!"}
               </h2>
-              <p style={{ color: "#8a9bb0", fontSize: 14, fontFamily: "sans-serif", marginBottom: 28 }}>
+              <p style={{ color: "#555555", fontSize: 14, fontFamily: "sans-serif", marginBottom: 28 }}>
                 O arquivo <strong style={{ color: GOLD }}>.docx</strong> foi baixado automaticamente.<br />
                 Abra no Word para revisar antes de enviar ao cliente.
               </p>
@@ -258,10 +270,11 @@ export default function App() {
           )}
         </div>
 
-        <p style={{ textAlign: "center", color: "#3a4a5a", fontSize: 12, marginTop: 24, fontFamily: "sans-serif" }}>
+        <p style={{ textAlign: "center", color: "#888888", fontSize: 12, marginTop: 24, fontFamily: "sans-serif" }}>
           Os dados são processados de forma segura e não são armazenados.
         </p>
       </div>
     </div>
+    </>
   );
 }
