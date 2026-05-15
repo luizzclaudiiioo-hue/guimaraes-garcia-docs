@@ -42,13 +42,6 @@ function substituirPorIndice(xml, mapa) {
   });
 }
 
-// Insere texto após um run específico no XML
-function inserirTextoAposRun(xml, textoReferencia, novoTexto, formatoRun) {
-  const escaped = textoReferencia.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const regex = new RegExp(`(<w:r[ >][\\s\\S]*?<w:t[^>]*>${escaped}<\\/w:t><\\/w:r>)`);
-  return xml.replace(regex, `$1${formatoRun(novoTexto)}`);
-}
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -62,6 +55,7 @@ export default async function handler(req, res) {
     const meses = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
     const dia = String(hoje.getDate());
     const mes = meses[hoje.getMonth()];
+    const ano = String(hoje.getFullYear());
 
     const filename = tipo === 'procuracao' ? 'template_procuracao.docx' : 'template_contrato.docx';
     const templateBuf = await fetchTemplate(filename);
@@ -101,129 +95,104 @@ export default async function handler(req, res) {
       xml = substituirPorIndice(xml, mapa);
 
     } else {
-      const parcelas = fin.parcelas || [];
+      // CONTRATO — mapeamento exato do novo template
       const nome = d.nome.toUpperCase();
       const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
-      const rgCompleto = d.rg + (d.orgao_expeditor ? ', expedido pela ' + d.orgao_expeditor : '');
-
-      // Para 6: RED[0]=nome, RED[1-3]=brasileiro(a), RED[4]=estado_civil,
-      // RED[5]=profissao, RED[6]=CPF, RED[7]=endereço, RED[8]=email
-      // Inserimos RG no campo CPF: "portador(a) do RG nº XXXX, inscrito(a) no CPF sob o nº CPF"
-      // O template tem ", inscrito(a) no CPF sob o nº" como texto fixo
-      // então colocamos RG antes do CPF modificando o texto fixo via substituição direta
-
-      // Substituir o texto fixo " inscrito(a) no CPF sob o nº" para incluir RG
-      xml = xml.replace(
-        /\xa0inscrito\(a\) no CPF sob o n[^<]*/g,
-        `, portador(a) do RG nº ${esc(rgCompleto)}, inscrito(a) no CPF sob o nº`
-      );
-
-      // Honorários — RED[10-11]: valor total, RED[12-20]: extenso
-      // RED[21-25]: entrada, RED[26-31]: entrada extenso
-      // RED[30]: num parcelas, RED[31-33]: extenso
-      // RED[34-35]: valor parcela, RED[36-43]: extenso
-      // Para 91 — RED[41,42]: dia, RED[43,44]: mês
-      // Para 96 — RED[45]: nome assinatura
-      // Tabela — RED[46+]: parcelas
-
+      const orgao = d.orgao_expeditor || 'SSP/' + d.estado;
+      const parcelas = fin.parcelas || [];
       const entrada = parcelas[0]?.valor || '';
-      const numParc = fin.numParcelasRestantes;
-      const valorParc = fin.valorParcela;
 
       const mapa = [
-        // Para 6 — cliente
-        { index: 0, value: nome },
-        { index: 1, value: 'brasileiro(a)' },
-        { index: 2, value: '' },
-        { index: 3, value: '' },
-        { index: 4, value: d.estado_civil },
-        { index: 5, value: d.profissao },
-        { index: 6, value: d.cpf },
-        { index: 7, value: enderecoCompleto },
-        { index: 8, value: d.email },
-        // Para 13 — processo
-        { index: 9, value: fin.numeroProcesso },
-        // Para 19 — valor total (runs 10-11 = R$ VALOR, runs 12-20 = (extenso))
-        { index: 10, value: fin.valorTotal },
-        { index: 11, value: '' },
-        { index: 12, value: '' },
-        { index: 13, value: '' },
+        // Para 6 — qualificação cliente
+        // RED[0]: NOME CLIENTE
+        { index: 0,  value: nome },
+        // RED[1-3]: brasileiro(a)
+        { index: 1,  value: 'brasileiro(a)' },
+        { index: 2,  value: '' },
+        { index: 3,  value: '' },
+        // RED[4]: estado civil
+        { index: 4,  value: d.estado_civil },
+        // RED[5]: profissão
+        { index: 5,  value: d.profissao },
+        // RED[6]: RG número
+        { index: 6,  value: d.rg },
+        // RED[7]: órgão expedidor, RED[8]: espaço
+        { index: 7,  value: orgao },
+        { index: 8,  value: ' ' },
+        // RED[9]: CPF
+        { index: 9,  value: d.cpf },
+        // RED[10]: endereço completo
+        { index: 10, value: enderecoCompleto },
+        // RED[11]: email
+        { index: 11, value: d.email },
+
+        // Para 13 — número do processo
+        { index: 12, value: fin.numeroProcesso },
+
+        // Para 19 — honorários
+        // RED[13-17]: valor total (R$ 10.000,00)
+        { index: 13, value: fin.valorTotal },
         { index: 14, value: '' },
-        { index: 15, value: '(' + fin.valorTotalExtenso + ')' },
+        { index: 15, value: '' },
         { index: 16, value: '' },
         { index: 17, value: '' },
-        { index: 18, value: '' },
+        // RED[18-23]: (dez mil reais)
+        { index: 18, value: '(' + fin.valorTotalExtenso + ')' },
         { index: 19, value: '' },
         { index: 20, value: '' },
-        // entrada
-        { index: 21, value: entrada },
+        { index: 21, value: '' },
         { index: 22, value: '' },
         { index: 23, value: '' },
-        { index: 24, value: '' },
+        // RED[24-28]: valor entrada (5.000,00)
+        { index: 24, value: entrada },
         { index: 25, value: '' },
         { index: 26, value: '' },
         { index: 27, value: '' },
         { index: 28, value: '' },
+        // RED[29-32]: (cinco mil reais)
         { index: 29, value: '' },
-        // num parcelas
-        { index: 30, value: numParc },
+        { index: 30, value: '' },
         { index: 31, value: '' },
         { index: 32, value: '' },
-        { index: 33, value: '' },
-        // valor parcela
-        { index: 34, value: valorParc },
+        // RED[33]: número de parcelas restantes
+        { index: 33, value: fin.numParcelasRestantes },
+        // RED[34-36]: (cinco) parcelas de R$
+        { index: 34, value: '' },
         { index: 35, value: '' },
         { index: 36, value: '' },
-        { index: 37, value: '' },
+        // RED[37-38]: valor da parcela (1.000,00)
+        { index: 37, value: fin.valorParcela },
         { index: 38, value: '' },
+        // RED[39-43]: (mil reais)
         { index: 39, value: '' },
         { index: 40, value: '' },
-        // Para 91 — data: RED[41]='0', RED[42]='7' → dia / RED[43]=' ', RED[44]='abril '
-        { index: 41, value: dia },
+        { index: 41, value: '' },
         { index: 42, value: '' },
-        { index: 43, value: ' ' },
-        { index: 44, value: mes + ' ' },
-        // Para 96 — assinatura
-        { index: 45, value: nome },
+        { index: 43, value: '' },
+
+        // Para 86 — data completa
+        // RED[44]: 'São Paulo', RED[45]: ', '
+        { index: 44, value: 'São Paulo' },
+        { index: 45, value: ', ' },
+        // RED[46-47]: dia (07)
+        { index: 46, value: dia },
+        { index: 47, value: '' },
+        // RED[48-49]: ' de '
+        { index: 48, value: ' ' },
+        { index: 49, value: 'de ' },
+        // RED[50]: mês
+        { index: 50, value: mes + ' ' },
+        // RED[51-54]: 'de 2026.'
+        { index: 51, value: 'de ' },
+        { index: 52, value: ano.substring(0, 3) },
+        { index: 53, value: ano.substring(3) },
+        { index: 54, value: '.' },
+
+        // Para 91 — assinatura cliente
+        { index: 55, value: nome },
       ];
 
       xml = substituirPorIndice(xml, mapa);
-
-      // Tabela — substituição direta por posição
-      // Estrutura: 5 linhas, col 0-2 esquerda, col 4-6 direita
-      // Linha 0: parcela[0] | parcela[metade]
-      // Linha 1: parcela[1] | parcela[metade+1]
-      // ...
-      // Última linha direita col4='Total:', col5=valorTotal
-      const metade = Math.ceil(parcelas.length / 2);
-      const esq = parcelas.slice(0, metade);
-      const dir = parcelas.slice(metade);
-
-      let tIdx = 46;
-      const tabelaMapa = [];
-
-      for (let i = 0; i < esq.length; i++) {
-        tabelaMapa.push({ index: tIdx++, value: esq[i].label + ':' });
-        tabelaMapa.push({ index: tIdx++, value: esq[i].valor });
-        tabelaMapa.push({ index: tIdx++, value: esq[i].data });
-        if (dir[i]) {
-          tabelaMapa.push({ index: tIdx++, value: dir[i].label + ':' });
-          tabelaMapa.push({ index: tIdx++, value: dir[i].valor });
-          tabelaMapa.push({ index: tIdx++, value: dir[i].data });
-        } else {
-          tabelaMapa.push({ index: tIdx++, value: 'Total:' });
-          tabelaMapa.push({ index: tIdx++, value: fin.valorTotal });
-          tIdx++;
-        }
-      }
-
-      if (parcelas.length % 2 === 0) {
-        tIdx += 3;
-        tabelaMapa.push({ index: tIdx++, value: 'Total:' });
-        tabelaMapa.push({ index: tIdx++, value: fin.valorTotal });
-      }
-
-      xml = substituirPorIndice(xml, tabelaMapa);
     }
 
     zip.file('word/document.xml', xml);
