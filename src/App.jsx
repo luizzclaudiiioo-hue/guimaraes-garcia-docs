@@ -267,8 +267,7 @@ export default function App() {
               {tipo === "revogacao" && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   <SecTitle>Dados da Revogação</SecTitle>
-                  <Campo label="Nome do advogado revogado" full value={fin.nomeAdvogado || ""} onChange={(v) => setFin(p => ({ ...p, nomeAdvogado: v }))} />
-                  <Campo label="Data da procuração original" value={fin.dataProcuracao || ""} onChange={(v) => setFin(p => ({ ...p, dataProcuracao: v }))} placeholder="dd/mm/aaaa" />
+                  <Campo label="Número do processo" full value={fin.numeroProcesso || ""} onChange={(v) => setFin(p => ({ ...p, numeroProcesso: v }))} placeholder="0000000-00.0000.0.00.0000" />
                 </div>
               )}
               {erro && <p style={{ color: "#e05050", fontSize: 13, marginTop: 12, fontFamily: "sans-serif" }}>{erro}</p>}
