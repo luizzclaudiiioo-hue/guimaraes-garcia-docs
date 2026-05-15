@@ -95,45 +95,29 @@ export default async function handler(req, res) {
       xml = substituirPorIndice(xml, mapa);
 
     } else {
-      // CONTRATO — mapeamento exato baseado na análise do novo template
+      // CONTRATO
+      // Para 6:
+      // RED[0]: nome | RED[1-3]: brasileiro(a) | RED[4]: estado civil
+      // RED[5]: profissão | RED[6]: RG | RED[7]: órgão+vírgula | RED[8]: espaço
+      // RED[9]: CPF | RED[10]: endereço completo | RED[11]: email
+      // Para 13: RED[12]: processo
+      // Para 19:
+      // RED[13]: valor total (colocar tudo aqui, zerar [14-17])
+      // RED[18]: extenso total (colocar tudo aqui, zerar [19-23])
+      // RED[24]: valor entrada (colocar tudo aqui, zerar [25-28])
+      // RED[29-32]: extenso entrada — zerar (texto não exibido)
+      // RED[33]: número de parcelas restantes
+      // RED[34-36]: extenso parcelas — zerar (RED[36] tem ') parcelas de R$ ' fixo)
+      // RED[37]: valor parcela (colocar tudo aqui, zerar [38])
+      // RED[39-43]: extenso valor parcela — zerar
+      // Para 86: RED[44-54]: data completa
+      // Para 91: RED[55]: nome assinatura
+
       const nome = d.nome.toUpperCase();
-      const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
       const orgao = d.orgao_expeditor || ('SSP/' + d.estado);
+      const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
       const parcelas = fin.parcelas || [];
       const entrada = parcelas[0]?.valor || '';
-
-      // Para 6:
-      // RED[0]: NOME CLIENTE
-      // RED[1]: 'brasileir', RED[2]: 'o', RED[3]: '(a)'
-      // RED[4]: estado civil
-      // RED[5]: profissão
-      // RED[6]: RG número (run[24])
-      // RED[7]: órgão expedidor (run[29]), RED[8]: ' ' (run[30])
-      // run[31]: 'inscrito(a) no CPF sob o nº' (texto fixo — já tem vírgula no run[25] antes)
-      // RED[9]: CPF (run[33])
-      // RED[10]: endereço (run[40])
-      // RED[11]: email (run[43])
-
-      // Para 13: RED[12]: número processo
-
-      // Para 19:
-      // RED[13-17]: valor total (R$ 10.000,00) — colocar tudo no [13], zerar demais
-      // RED[18-23]: extenso — colocar tudo no [18], zerar demais
-      // RED[24-28]: entrada — colocar tudo no [24], zerar demais
-      // RED[29-32]: extenso entrada — zerar todos
-      // RED[33]: num parcelas restantes
-      // RED[34-36]: extenso num parcelas — zerar
-      // RED[37-38]: valor parcela — colocar no [37], zerar [38]
-      // RED[39-43]: extenso valor parcela — zerar
-
-      // Para 86 (data):
-      // RED[44]: 'São Paulo', RED[45]: ', '
-      // RED[46]: dia1, RED[47]: dia2 → colocar dia no [46], zerar [47]
-      // RED[48]: ' ', RED[49]: 'de '
-      // RED[50]: mês
-      // RED[51]: 'de ', RED[52]: '202', RED[53]: '6', RED[54]: '.'
-
-      // Para 91 (assinatura): RED[55]: nome
 
       const mapa = [
         // Para 6
@@ -157,7 +141,7 @@ export default async function handler(req, res) {
         { index: 15, value: '' },
         { index: 16, value: '' },
         { index: 17, value: '' },
-        // extenso valor total
+        // extenso total
         { index: 18, value: '(' + fin.valorTotalExtenso + ')' },
         { index: 19, value: '' },
         { index: 20, value: '' },
@@ -177,7 +161,7 @@ export default async function handler(req, res) {
         { index: 32, value: '' },
         // num parcelas restantes
         { index: 33, value: fin.numParcelasRestantes },
-        // extenso num parcelas — zerar
+        // extenso num parcelas — zerar (RED[36] tem ') parcelas de R$ ' fixo no texto)
         { index: 34, value: '' },
         { index: 35, value: '' },
         { index: 36, value: '' },
