@@ -28,7 +28,7 @@ const sLabel = {
 };
 
 export default function Auth() {
-  const [modo, setModo] = useState("login");
+  const [modo, setModo] = useState("login"); // login | cadastro | confirmacao
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [nome, setNome] = useState("");
@@ -84,6 +84,7 @@ export default function Auth() {
     }}>
       <div style={{ width: "100%", maxWidth: 420 }}>
 
+        {/* Header */}
         <div style={{ textAlign: "center", marginBottom: 36 }}>
           <div style={{
             display: "inline-block",
@@ -105,6 +106,7 @@ export default function Auth() {
           </p>
         </div>
 
+        {/* Card */}
         <div style={{
           background: "rgba(255,255,255,0.04)",
           border: "1px solid rgba(201,168,76,0.2)",
@@ -174,4 +176,49 @@ export default function Auth() {
                   letterSpacing: 1,
                 }}
               >
-                {carregando ? "Aguarde..." : modo === "log
+                {carregando ? "Aguarde..." : modo === "login" ? "Entrar →" : "Criar conta →"}
+              </button>
+
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+                <button
+                  type="button"
+                  onClick={() => { setModo(modo === "login" ? "cadastro" : "login"); setErro(""); setMsg(""); }}
+                  style={{ background: "none", border: "none", color: GOLD, cursor: "pointer", fontFamily: "sans-serif", fontSize: 13 }}
+                >
+                  {modo === "login" ? "Criar conta grátis" : "Já tenho conta"}
+                </button>
+                {modo === "login" && (
+                  <button
+                    type="button"
+                    onClick={handleReset}
+                    style={{ background: "none", border: "none", color: "#5a6a7a", cursor: "pointer", fontFamily: "sans-serif", fontSize: 12 }}
+                  >
+                    Esqueci a senha
+                  </button>
+                )}
+              </div>
+
+            </form>
+          )}
+        </div>
+
+        {/* Badge créditos grátis */}
+        {modo === "cadastro" && (
+          <div style={{
+            marginTop: 16,
+            textAlign: "center",
+            background: "rgba(201,168,76,0.08)",
+            border: "1px solid rgba(201,168,76,0.2)",
+            borderRadius: 10,
+            padding: "10px 16px",
+            fontFamily: "sans-serif",
+            fontSize: 13,
+            color: GOLD_L,
+          }}>
+            🎁 Ao criar sua conta você recebe <strong>3 créditos gratuitos</strong>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
