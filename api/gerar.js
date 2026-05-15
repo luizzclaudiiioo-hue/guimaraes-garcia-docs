@@ -111,22 +111,17 @@ export default async function handler(req, res) {
         { index: 7,  value: '' },
         { index: 8,  value: d.rg },
         { index: 9,  value: d.cpf },
-        { index: 10, value: d.rua + ', ' + d.numero + ', ' + d.bairro },
-        { index: 11, value: '' },
-        { index: 12, value: '' },
-        { index: 13, value: '' },
-        { index: 14, value: '' },
-        { index: 15, value: d.cidade + ' ' },
-        { index: 16, value: '- ' },
-        { index: 17, value: d.estado },
-        { index: 18, value: ', CEP' },
-        { index: 19, value: ' ' },
-        { index: 20, value: d.cep },
-        { index: 21, value: d.email },
-        { index: 22, value: dia },
-        { index: 23, value: mes },
-        { index: 24, value: nome },
-        { index: 25, value: '' },
+        // RED[10]: endereço completo (template unificado)
+        { index: 10, value: d.rua + ', ' + d.numero + ', ' + d.bairro + ', ' + d.cidade + ' - ' + d.estado + ', CEP ' + d.cep },
+        // RED[11]: email (antes era RED[21])
+        { index: 11, value: d.email },
+        // RED[12]: dia
+        { index: 12, value: dia },
+        // RED[13]: mês
+        { index: 13, value: mes },
+        // RED[14]: nome assinatura
+        { index: 14, value: nome },
+        { index: 15, value: '' },
       ];
       xml = substituirPorIndice(xml, mapa);
 
