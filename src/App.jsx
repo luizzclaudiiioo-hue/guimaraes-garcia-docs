@@ -35,8 +35,8 @@ function parcelasVazias(n) {
   }));
 }
 
-const GOLD = "#5a7a5a";
-const GOLD_L = "#7a9e6e";
+const GOLD = "#c9a84c";
+const GOLD_L = "#e8c96a";
 
 const sLabel = { display: "block", fontSize: 11, color: "#555555", marginBottom: 5, fontFamily: "sans-serif", letterSpacing: 1, textTransform: "uppercase" };
 const sInput = (vazio) => ({ width: "100%", background: vazio ? "rgba(180,60,60,0.10)" : "rgba(0,0,0,0.06)", border: vazio ? "1px solid rgba(200,80,80,0.5)" : "1px solid rgba(90,122,90,0.3)", borderRadius: 8, color: "#2a2a2a", fontSize: 14, padding: "9px 12px", fontFamily: "sans-serif", outline: "none", boxSizing: "border-box" });
@@ -147,7 +147,7 @@ export default function App() {
   return (
     <>
     <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@700&display=swap" rel="stylesheet" />
-    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #2a2a2a 0%, #1e1e1e 100%)", fontFamily: "Georgia, serif", color: "#2a2a2a", padding: "32px 16px" }}>
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #3a4a3a 0%, #2e3d2e 100%)", fontFamily: "Georgia, serif", color: "#2a2a2a", padding: "32px 16px" }}>
       <div style={{ maxWidth: 700, margin: "0 auto" }}>
 
         <div style={{ textAlign: "center", marginBottom: 36 }}>
@@ -169,7 +169,7 @@ export default function App() {
           </div>
         )}
 
-        <div style={{ background: "#d8d8d8", border: "1px solid rgba(90,122,90,0.25)", borderRadius: 16, padding: 32, backdropFilter: "blur(10px)", boxShadow: "0 2px 20px rgba(0,0,0,0.25)" }}>
+        <div style={{ background: "#d4dbd4", border: "1px solid rgba(90,122,90,0.35)", borderRadius: 16, padding: 32, backdropFilter: "blur(10px)", boxShadow: "0 2px 20px rgba(0,0,0,0.25)" }}>
 
           {etapa === "tipo" && (
             <>
