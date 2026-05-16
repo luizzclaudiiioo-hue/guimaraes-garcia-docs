@@ -103,9 +103,16 @@ export default function App() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = tipo === "procuracao"
-        ? `Procuracao_${dados.nome.replace(/\s+/g, "_")}.docx`
-        : `Contrato_${dados.nome.replace(/\s+/g, "_")}.docx`;
+      const nomesArquivo = {
+        procuracao: "Procuracao_",
+        contrato: "Contrato_",
+        declaracao: "Declaracao_Hipossuficiencia_",
+        revogacao: "Revogacao_Mandato_",
+        residencia_propria: "Declaracao_Residencia_",
+        amaisa: "Declaracao_Amaisa_",
+        proprietario: "Declaracao_Proprietario_",
+      };
+      a.download = `${nomesArquivo[tipo] || "Documento_"}${dados.nome.replace(/\s+/g, "_")}.docx`;
       a.click();
       URL.revokeObjectURL(url);
       setEtapa("pronto");
@@ -265,6 +272,8 @@ export default function App() {
               )}
               {tipo === "proprietario" && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <SecTitle>Dados do Imóvel</SecTitle>
+                  <Campo label="Endereço completo do imóvel" full value={fin.enderecoImovel || ""} onChange={(v) => setFin(p => ({ ...p, enderecoImovel: v }))} placeholder="Rua Exemplo, 123, Bairro, São Paulo – SP, CEP 00000-000" />
                   <SecTitle>Dados do Locatário</SecTitle>
                   <Campo label="Nome do locatário" full value={fin.nomeLocatario || ""} onChange={(v) => setFin(p => ({ ...p, nomeLocatario: v }))} />
                   <Campo label="CPF do locatário" value={fin.cpfLocatario || ""} onChange={(v) => setFin(p => ({ ...p, cpfLocatario: v }))} />
