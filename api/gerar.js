@@ -1,4 +1,4 @@
-import JSZip from 'jszip';
+const JSZip = require('jszip');
 
 const GITHUB_USER = 'luizzclaudiiioo-hue';
 const GITHUB_REPO = 'guimaraes-garcia-docs';
@@ -78,7 +78,7 @@ function substituirPorIndice(xml, mapa) {
   });
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
