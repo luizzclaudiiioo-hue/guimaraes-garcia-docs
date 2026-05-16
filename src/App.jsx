@@ -147,26 +147,29 @@ export default function App() {
   return (
     <>
     <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@700&display=swap" rel="stylesheet" />
-    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #e8e8e8 0%, #d4d4d4 100%)", fontFamily: "Georgia, serif", color: "#2a2a2a", padding: "32px 16px" }}>
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #2a2a2a 0%, #1e1e1e 100%)", fontFamily: "Georgia, serif", color: "#2a2a2a", padding: "32px 16px" }}>
       <div style={{ maxWidth: 700, margin: "0 auto" }}>
 
         <div style={{ textAlign: "center", marginBottom: 36 }}>
-          <div style={{ display: "inline-block", background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: 18, letterSpacing: 2, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", marginBottom: 0 }}>
-            GUIMARÃES & GARCIA - SOCIEDADE DE ADVOGADOS
+          <div style={{ display: "inline-block", background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: 22, letterSpacing: 3, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", lineHeight: 1.3 }}>
+            GUIMARÃES & GARCIA
+          </div>
+          <div style={{ display: "block", background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: 11, letterSpacing: 3, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", marginTop: 4, opacity: 0.85 }}>
+            SOCIEDADE DE ADVOGADOS
           </div>
         </div>
 
         {etapa !== "tipo" && (
           <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 28, flexWrap: "wrap" }}>
             {steps.map((s, i) => (
-              <div key={s} style={{ padding: "5px 14px", borderRadius: 20, fontSize: 12, fontFamily: "sans-serif", background: i < etapaIdx ? "#4a7a4a" : i === etapaIdx ? GOLD : "rgba(255,255,255,0.07)", color: i <= etapaIdx ? "#fff" : "#666666", transition: "all 0.3s" }}>
+              <div key={s} style={{ padding: "5px 14px", borderRadius: 20, fontSize: 12, fontFamily: "sans-serif", background: i < etapaIdx ? "#4a7a4a" : i === etapaIdx ? GOLD : "rgba(255,255,255,0.12)", color: i <= etapaIdx ? "#fff" : "#aaaaaa", transition: "all 0.3s" }}>
                 {i < etapaIdx ? "✓ " : ""}{s}
               </div>
             ))}
           </div>
         )}
 
-        <div style={{ background: "rgba(255,255,255,0.85)", border: "1px solid rgba(90,122,90,0.25)", borderRadius: 16, padding: 32, backdropFilter: "blur(10px)", boxShadow: "0 2px 20px rgba(0,0,0,0.08)" }}>
+        <div style={{ background: "#d8d8d8", border: "1px solid rgba(90,122,90,0.25)", borderRadius: 16, padding: 32, backdropFilter: "blur(10px)", boxShadow: "0 2px 20px rgba(0,0,0,0.25)" }}>
 
           {etapa === "tipo" && (
             <>
