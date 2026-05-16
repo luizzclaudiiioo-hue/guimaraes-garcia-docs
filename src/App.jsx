@@ -272,13 +272,7 @@ export default function App() {
               )}
               {tipo === "proprietario" && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <SecTitle>Dados do Proprietário (Locador)</SecTitle>
-                  <Campo label="Nome completo do proprietário" full value={fin.nomeLocador || ""} onChange={(v) => setFin(p => ({ ...p, nomeLocador: v }))} />
-                  <Campo label="RG do proprietário" value={fin.rgLocador || ""} onChange={(v) => setFin(p => ({ ...p, rgLocador: v }))} />
-                  <Campo label="Órgão expedidor" value={fin.orgaoLocador || ""} onChange={(v) => setFin(p => ({ ...p, orgaoLocador: v }))} placeholder="SSP/SP" />
-                  <Campo label="CPF do proprietário" value={fin.cpfLocador || ""} onChange={(v) => setFin(p => ({ ...p, cpfLocador: v }))} />
-                  <Campo label="Endereço do proprietário" full value={fin.enderecoLocador || ""} onChange={(v) => setFin(p => ({ ...p, enderecoLocador: v }))} placeholder="Rua, número, bairro, cidade - UF, CEP" />
-                  <SecTitle>Dados do Imóvel Alugado</SecTitle>
+                  <SecTitle>Endereço do Imóvel Alugado</SecTitle>
                   <Campo label="Endereço completo do imóvel" full value={fin.enderecoImovel || ""} onChange={(v) => setFin(p => ({ ...p, enderecoImovel: v }))} placeholder="Rua Exemplo, 123, Bairro, São Paulo – SP, CEP 00000-000" />
                   <SecTitle>Dados do Locatário (Cliente)</SecTitle>
                   <Campo label="Nome do locatário" full value={fin.nomeLocatario || ""} onChange={(v) => setFin(p => ({ ...p, nomeLocatario: v }))} />
