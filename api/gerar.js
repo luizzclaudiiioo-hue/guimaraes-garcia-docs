@@ -375,27 +375,32 @@ module.exports = async function handler(req, res) {
       xml = substituirPorIndice(xml, mapa);
 
     } else if (tipo === 'proprietario') {
-      const nomeLocador = d.nome.toUpperCase();
-      const nomeLocatario = (fin.nomeLocatario || '').toUpperCase();
-      const cpfLocatario = fin.cpfLocatario || '';
-      const enderecoLocador = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
-      const orgao = d.orgao_expeditor || ('SSP/' + d.estado);
+      // Locador = proprietário do imóvel (terceiro, preenchido manualmente em fin)
+      // Locatário = cliente do escritório (dados em d)
+      const nomeLocador = (fin.nomeLocador || '').toUpperCase();
+      const nomeLocatario = (fin.nomeLocatario || d.nome || '').toUpperCase();
+      const cpfLocatario = fin.cpfLocatario || d.cpf || '';
+      const orgaoLocador = fin.orgaoLocador || 'SSP/SP';
+      const enderecoLocador = fin.enderecoLocador || '';
+      // Endereço do imóvel dividido em 3 runs no template
+      const enderecoImovel = fin.enderecoImovel || '';
       const mapa = [
+        // RED[0-1]: nome do locador (dividido em 2 runs)
         { index: 0,  value: nomeLocador.split(' ')[0] + ' ' },
         { index: 1,  value: nomeLocador.split(' ').slice(1).join(' ') },
         { index: 2,  value: 'brasileiro(a)' },
-        { index: 3,  value: d.rg },
-        { index: 4,  value: orgao },
-        { index: 5,  value: d.cpf },
+        { index: 3,  value: fin.rgLocador || '' },
+        { index: 4,  value: orgaoLocador },
+        { index: 5,  value: fin.cpfLocador || '' },
         { index: 6,  value: enderecoLocador },
-        // Endereço do imóvel - RED[7-9] - campo editável
-        { index: 7,  value: fin.enderecoImovel ? fin.enderecoImovel : 'Rua Barra Funda, ' },
-        { index: 8,  value: fin.enderecoImovel ? '' : (fin.numeroImovel || '') },
-        { index: 9,  value: fin.enderecoImovel ? '' : (fin.complementoImovel || ', Barra Funda, São Paulo – SP, CEP 000') },
-        // Locatário - RED[10-11]
+        // RED[7-9]: endereço do imóvel (3 runs) — colocar tudo no primeiro, limpar os demais
+        { index: 7,  value: enderecoImovel },
+        { index: 8,  value: '' },
+        { index: 9,  value: '' },
+        // RED[10-11]: locatário
         { index: 10, value: nomeLocatario },
         { index: 11, value: cpfLocatario },
-        // Data - RED[12-18]
+        // RED[12-18]: data
         { index: 12, value: 'São Paulo, ' },
         { index: 13, value: dia },
         { index: 14, value: ' de ' },
@@ -403,7 +408,7 @@ module.exports = async function handler(req, res) {
         { index: 16, value: ' de' },
         { index: 17, value: ' ' + ano },
         { index: 18, value: '.' },
-        // Assinatura - RED[19]
+        // RED[19]: assinatura do locador
         { index: 19, value: nomeLocador },
       ];
       xml = substituirPorIndice(xml, mapa);
