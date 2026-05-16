@@ -138,7 +138,7 @@ module.exports = async function handler(req, res) {
       // Remove vírgulas duplicadas geradas por campos vazios no endereço
       xml = xml.replace(/,\s*,\s*,/g, ',').replace(/,\s*,/g, ',');
 
-    } else {
+    } else if (tipo === 'contrato') {
       const nome = d.nome.toUpperCase();
       const orgao = d.orgao_expeditor || ('SSP/' + d.estado);
       const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
