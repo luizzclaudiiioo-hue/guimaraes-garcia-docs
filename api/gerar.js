@@ -293,6 +293,10 @@ module.exports = async function handler(req, res) {
         { index: 10, value: '.' },
       ];
       xml = substituirPorIndice(xml, mapa);
+      // Data e assinatura são texto FIXO no template (não são vermelhos) - substituir via regex
+      const dataFormatada = `${d.cidade || 'São Paulo'}, ${dia} de ${mes} de ${ano}.`;
+      xml = xml.replace(/Carapicuíba, 27 de junho de 2025\./g, esc(dataFormatada));
+      xml = xml.replace(/>NOME CLIENTE</g, `>${esc(nome)}<`);
 
     } else if (tipo === 'amaisa') {
       // ESTRUTURA DO TEMPLATE AMÁSIA:
@@ -380,10 +384,10 @@ module.exports = async function handler(req, res) {
         { index: 4,  value: orgao },
         { index: 5,  value: d.cpf },
         { index: 6,  value: enderecoLocador },
-        // Endereço do imóvel - RED[7-9] (fixo no template, mantém texto original)
-        { index: 7,  value: 'Rua Barra Funda, ' },
-        { index: 8,  value: '' },
-        { index: 9,  value: ', Barra Funda, São Paulo – SP, CEP 000' },
+        // Endereço do imóvel - RED[7-9] - campo editável
+        { index: 7,  value: fin.enderecoImovel ? fin.enderecoImovel : 'Rua Barra Funda, ' },
+        { index: 8,  value: fin.enderecoImovel ? '' : (fin.numeroImovel || '') },
+        { index: 9,  value: fin.enderecoImovel ? '' : (fin.complementoImovel || ', Barra Funda, São Paulo – SP, CEP 000') },
         // Locatário - RED[10-11]
         { index: 10, value: nomeLocatario },
         { index: 11, value: cpfLocatario },
