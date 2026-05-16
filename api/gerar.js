@@ -53,7 +53,7 @@ async function fetchTemplate(filename) {
   return Buffer.from(await res.arrayBuffer());
 }
 
-function isRed(rPrXml) { return /<w:color[^>]*w:val="FF0000"/.test(rPrXml); }
+function isRed(rPrXml) { return /<w:color[^>]*w:val="(FF0000|EE0000)"/.test(rPrXml); }
 
 function removeRedColor(rPrInner) {
   return rPrInner.replace(/<w:color[^/]*\/>/g,'').replace(/<w:color[^>]*>[\s\S]*?<\/w:color>/g,'');
@@ -87,11 +87,14 @@ module.exports = async function handler(req, res) {
 
   try {
     const { tipo, dados: d, financeiro: fin } = req.body;
-    const hoje = new Date();
+    // Usar horário de São Paulo (UTC-3) para evitar erro de data no servidor UTC
+    const agora = new Date();
+    const spOffset = -3 * 60; // UTC-3 em minutos
+    const spTime = new Date(agora.getTime() + (spOffset - agora.getTimezoneOffset()) * 60000);
     const meses = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
-    const dia = String(hoje.getDate());
-    const mes = meses[hoje.getMonth()];
-    const ano = String(hoje.getFullYear());
+    const dia = String(spTime.getDate());
+    const mes = meses[spTime.getMonth()];
+    const ano = String(spTime.getFullYear());
 
     const filenameMap = {
       procuracao: 'template_procuracao.docx',
@@ -291,12 +294,11 @@ module.exports = async function handler(req, res) {
         { index: 8,  value: d.email },
         { index: 9,  value: enderecoCompleto },
         { index: 10, value: '.' },
+        // RED[11] e [12] têm cor EE0000 (data e assinatura)
+        { index: 11, value: `${d.cidade || 'São Paulo'}, ${dia} de ${mes} de ${ano}.` },
+        { index: 12, value: nome },
       ];
       xml = substituirPorIndice(xml, mapa);
-      // Data e assinatura são texto FIXO no template (não são vermelhos) - substituir via regex
-      const dataFormatada = `${d.cidade || 'São Paulo'}, ${dia} de ${mes} de ${ano}.`;
-      xml = xml.replace(/Carapicuíba, 27 de junho de 2025\./g, esc(dataFormatada));
-      xml = xml.replace(/>NOME CLIENTE</g, `>${esc(nome)}<`);
 
     } else if (tipo === 'amaisa') {
       // ESTRUTURA DO TEMPLATE AMÁSIA:
@@ -346,27 +348,29 @@ module.exports = async function handler(req, res) {
         { index: 13, value: ' meses' },
         { index: 14, value: nomePreso.split(' ')[0] },
         { index: 15, value: ' ' + nomePreso.split(' ').slice(1).join(' ') },
-        { index: 16, value: fin.rgPreso || '' },
-        { index: 17, value: orgaoParte1 },
-        { index: 18, value: '/' },
-        { index: 19, value: orgaoParte2 },
-        { index: 20, value: fin.cpfPreso || '' },
-        { index: 21, value: fin.localDetencao ? fin.localDetencao.split(',')[0] || '' : '' },
-        { index: 22, value: fin.localDetencao ? (fin.localDetencao.split(',')[1] || '').trim() : '' },
-        { index: 23, value: fin.matricula || '' },
-        { index: 24, value: 'São Paulo, ' },
-        { index: 25, value: dia },
-        { index: 26, value: ' de' },
-        { index: 27, value: ' ' },
-        { index: 28, value: mes },
-        { index: 29, value: ' ' },
-        { index: 30, value: 'de' },
-        { index: 31, value: ' ' },
-        { index: 32, value: ano.substring(0,3) },
-        { index: 33, value: ano.substring(3) },
-        { index: 34, value: '' },
-        { index: 35, value: nomeEsposa.split(' ')[0] },
-        { index: 36, value: ' ' + nomeEsposa.split(' ').slice(1).join(' ') },
+        // RED[16] = EE0000 espaço vazio - ignorar
+        { index: 16, value: '' },
+        { index: 17, value: fin.rgPreso || '' },
+        { index: 18, value: orgaoParte1 },
+        { index: 19, value: '/' },
+        { index: 20, value: orgaoParte2 },
+        { index: 21, value: fin.cpfPreso || '' },
+        { index: 22, value: fin.localDetencao ? fin.localDetencao.split(',')[0] || '' : '' },
+        { index: 23, value: fin.localDetencao ? (fin.localDetencao.split(',')[1] || '').trim() : '' },
+        { index: 24, value: fin.matricula || '' },
+        { index: 25, value: 'São Paulo, ' },
+        { index: 26, value: dia },
+        { index: 27, value: ' de' },
+        { index: 28, value: ' ' },
+        { index: 29, value: mes },
+        { index: 30, value: ' ' },
+        { index: 31, value: 'de' },
+        { index: 32, value: ' ' },
+        { index: 33, value: ano.substring(0,3) },
+        { index: 34, value: ano.substring(3) },
+        { index: 35, value: '' },
+        { index: 36, value: nomeEsposa.split(' ')[0] },
+        { index: 37, value: ' ' + nomeEsposa.split(' ').slice(1).join(' ') },
       ];
       xml = substituirPorIndice(xml, mapa);
 
