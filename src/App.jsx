@@ -253,8 +253,14 @@ export default function App() {
               {tipo === "amaisa" && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   <SecTitle>Dados da União Estável</SecTitle>
-                  <Campo label="Nome do(a) companheiro(a)" full value={fin.nomeAmaisa || ""} onChange={(v) => setFin(p => ({ ...p, nomeAmaisa: v }))} />
                   <Campo label="Data de início da união" value={fin.dataUniao || ""} onChange={(v) => setFin(p => ({ ...p, dataUniao: v }))} placeholder="dd/mm/aaaa" />
+                  <SecTitle>Dados do Preso</SecTitle>
+                  <Campo label="Nome completo do preso" full value={fin.nomePreso || ""} onChange={(v) => setFin(p => ({ ...p, nomePreso: v }))} />
+                  <Campo label="RG do preso" value={fin.rgPreso || ""} onChange={(v) => setFin(p => ({ ...p, rgPreso: v }))} />
+                  <Campo label="Órgão expedidor (ex: SSP/SP)" value={fin.orgaoPreso || ""} onChange={(v) => setFin(p => ({ ...p, orgaoPreso: v }))} placeholder="SSP/SP" />
+                  <Campo label="CPF do preso" value={fin.cpfPreso || ""} onChange={(v) => setFin(p => ({ ...p, cpfPreso: v }))} />
+                  <Campo label="Local de detenção" full value={fin.localDetencao || ""} onChange={(v) => setFin(p => ({ ...p, localDetencao: v }))} placeholder="CDP de Chácara Belém I, São Paulo" />
+                  <Campo label="Matrícula" value={fin.matricula || ""} onChange={(v) => setFin(p => ({ ...p, matricula: v }))} />
                 </div>
               )}
               {tipo === "proprietario" && (
