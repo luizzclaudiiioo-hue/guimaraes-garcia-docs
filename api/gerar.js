@@ -228,6 +228,9 @@ module.exports = async function handler(req, res) {
       xml = substituirPorIndice(xml, mapa);
 
     } else if (tipo === 'declaracao') {
+      // RED[0]=nome, [1]=nacionalidade, [2]=estado_civil, [3]=profissao,
+      // [4]=RG, [5]=CPF (SSP/SP é fixo no template), [6]=endereco, [7]=email,
+      // [8]='São Paulo, ' [9]=dia [10]=' de ' [11]=mes [12]='de ANO' [13]=ultimo_digito_ano [14]='.' [15]=nome
       const nome = d.nome.toUpperCase();
       const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
       const mapa = [
@@ -269,7 +272,12 @@ module.exports = async function handler(req, res) {
       xml = substituirPorIndice(xml, mapa);
 
     } else if (tipo === 'residencia_propria') {
+      // RED[0]=nome, [1]=nacionalidade, [2]=estado_civil, [3]=profissao,
+      // [4]=RG, [5]=SSP/orgao, [6]=CPF, [7]=endereco, [8]=email,
+      // [9]=endereco (repetido no corpo), [10]='.' (ponto final bold)
+      // Atenção: data e assinatura são FIXAS no template (não são vermelhas)
       const nome = d.nome.toUpperCase();
+      const orgao = d.orgao_expeditor || ('SSP/' + d.estado);
       const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
       const mapa = [
         { index: 0,  value: nome },
@@ -277,7 +285,7 @@ module.exports = async function handler(req, res) {
         { index: 2,  value: d.estado_civil },
         { index: 3,  value: d.profissao },
         { index: 4,  value: d.rg },
-        { index: 5,  value: 'SSP/' + d.estado },
+        { index: 5,  value: orgao },
         { index: 6,  value: d.cpf },
         { index: 7,  value: enderecoCompleto },
         { index: 8,  value: d.email },
@@ -287,48 +295,61 @@ module.exports = async function handler(req, res) {
       xml = substituirPorIndice(xml, mapa);
 
     } else if (tipo === 'amaisa') {
-      const nome = d.nome.toUpperCase();
-      const nomeAmaisa = (fin.nomeAmaisa || '').toUpperCase();
+      // ESTRUTURA DO TEMPLATE AMÁSIA:
+      // Quem assina ("Eu") = esposa/companheira = dados do cliente (d)
+      // Quem está preso = RED[14-23] = fin.nomePreso, fin.rgPreso, fin.cpfPreso, fin.localDetencao, fin.matricula
+      // RED[0-1]=nome esposa, [2]=RG esposa, [3]=orgao, [4]=CPF esposa,
+      // [5]=endereco, [6]=email,
+      // [7-13]=tempo de união (anos e meses),
+      // [14-15]=nome preso, [16]=RG preso, [17-19]=orgao preso (SSP/SP em 3 runs),
+      // [20]=CPF preso, [21-22]=local detenção, [23]=matrícula,
+      // [24-33]=data, [34]=vazio, [35-36]=assinatura (nome esposa)
+      const nomeEsposa = d.nome.toUpperCase();
+      const nomePreso = (fin.nomePreso || '').toUpperCase();
+      const orgao = d.orgao_expeditor || ('SSP/' + d.estado);
       const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
-      // Calcular tempo de união a partir da data
-      let anosUniao = '', mesesUniao = '';
+      // Calcular tempo de união
+      let anosUniao = '0', mesesUniao = '0';
       if (fin.dataUniao) {
-        const [diaU, mesU, anoU] = fin.dataUniao.split('/').map(Number);
-        const inicio = new Date(anoU, mesU - 1, diaU);
-        const agora = new Date();
-        let diffMeses = (agora.getFullYear() - inicio.getFullYear()) * 12 + (agora.getMonth() - inicio.getMonth());
-        anosUniao = String(Math.floor(diffMeses / 12));
-        mesesUniao = String(diffMeses % 12);
+        const partes = fin.dataUniao.split('/');
+        if (partes.length === 3) {
+          const inicio = new Date(Number(partes[2]), Number(partes[1]) - 1, Number(partes[0]));
+          const agora = new Date();
+          let diffMeses = (agora.getFullYear() - inicio.getFullYear()) * 12 + (agora.getMonth() - inicio.getMonth());
+          anosUniao = String(Math.floor(diffMeses / 12));
+          mesesUniao = String(diffMeses % 12);
+        }
       }
+      // Separar orgão do preso em SSP / SP
+      const orgaoPreso = fin.orgaoPreso || 'SSP/SP';
+      const orgaoPartes = orgaoPreso.split('/');
+      const orgaoParte1 = orgaoPartes[0] || 'SSP';
+      const orgaoParte2 = orgaoPartes[1] || 'SP';
       const mapa = [
-        // Dados do(a) companheiro(a) - RED[0-6]
-        { index: 0,  value: nomeAmaisa.split(' ')[0] + ' ' },
-        { index: 1,  value: nomeAmaisa.split(' ').slice(1).join(' ') },
+        { index: 0,  value: nomeEsposa.split(' ')[0] + ' ' },
+        { index: 1,  value: nomeEsposa.split(' ').slice(1).join(' ') },
         { index: 2,  value: d.rg },
-        { index: 3,  value: 'SSP/' + d.estado },
+        { index: 3,  value: orgao },
         { index: 4,  value: d.cpf },
         { index: 5,  value: enderecoCompleto },
         { index: 6,  value: d.email },
-        // Tempo de união - RED[7-13]
         { index: 7,  value: anosUniao },
         { index: 8,  value: ' ' },
-        { index: 9,  value: anosUniao === '1' ? 'ano' : 'anos' },
+        { index: 9,  value: Number(anosUniao) === 1 ? 'ano' : 'anos' },
         { index: 10, value: ' ' },
         { index: 11, value: 'e ' },
         { index: 12, value: mesesUniao },
         { index: 13, value: ' meses' },
-        // Dados do cliente - RED[14-23]
-        { index: 14, value: nome.split(' ')[0] },
-        { index: 15, value: ' ' + nome.split(' ').slice(1).join(' ') },
-        { index: 16, value: d.rg },
-        { index: 17, value: 'SSP' },
+        { index: 14, value: nomePreso.split(' ')[0] },
+        { index: 15, value: ' ' + nomePreso.split(' ').slice(1).join(' ') },
+        { index: 16, value: fin.rgPreso || '' },
+        { index: 17, value: orgaoParte1 },
         { index: 18, value: '/' },
-        { index: 19, value: d.estado },
-        { index: 20, value: d.cpf },
-        { index: 21, value: '' },
-        { index: 22, value: '' },
-        { index: 23, value: '' },
-        // Data - RED[24-33]
+        { index: 19, value: orgaoParte2 },
+        { index: 20, value: fin.cpfPreso || '' },
+        { index: 21, value: fin.localDetencao ? fin.localDetencao.split(',')[0] || '' : '' },
+        { index: 22, value: fin.localDetencao ? (fin.localDetencao.split(',')[1] || '').trim() : '' },
+        { index: 23, value: fin.matricula || '' },
         { index: 24, value: 'São Paulo, ' },
         { index: 25, value: dia },
         { index: 26, value: ' de' },
@@ -340,9 +361,8 @@ module.exports = async function handler(req, res) {
         { index: 32, value: ano.substring(0,3) },
         { index: 33, value: ano.substring(3) },
         { index: 34, value: '' },
-        // Assinatura - RED[35-36]
-        { index: 35, value: nome.split(' ')[0] },
-        { index: 36, value: ' ' + nome.split(' ').slice(1).join(' ') },
+        { index: 35, value: nomeEsposa.split(' ')[0] },
+        { index: 36, value: ' ' + nomeEsposa.split(' ').slice(1).join(' ') },
       ];
       xml = substituirPorIndice(xml, mapa);
 
