@@ -147,11 +147,12 @@ export default function App() {
   return (
     <>
     <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@700&display=swap" rel="stylesheet" />
-    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #3a4a3a 0%, #2e3d2e 100%)", fontFamily: "Georgia, serif", color: "#2a2a2a", padding: "32px 16px" }}>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #3a4a3a 0%, #2e3d2e 100%)", fontFamily: "Georgia, serif", color: "#2a2a2a", padding: "20px 12px" }}>
       <div style={{ maxWidth: 700, margin: "0 auto" }}>
 
         <div style={{ textAlign: "center", marginBottom: 36 }}>
-          <div style={{ display: "inline-block", background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: 22, letterSpacing: 3, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", lineHeight: 1.3 }}>
+          <div style={{ display: "inline-block", background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(16px, 5vw, 22px)", letterSpacing: 3, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", lineHeight: 1.3 }}>
             GUIMARÃES & GARCIA
           </div>
           <div style={{ display: "block", background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: 11, letterSpacing: 3, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", marginTop: 4, opacity: 0.85 }}>
@@ -169,18 +170,18 @@ export default function App() {
           </div>
         )}
 
-        <div style={{ background: "#d4dbd4", border: "1px solid rgba(90,122,90,0.35)", borderRadius: 16, padding: 32, backdropFilter: "blur(10px)", boxShadow: "0 2px 20px rgba(0,0,0,0.25)" }}>
+        <div style={{ background: "#d4dbd4", border: "1px solid rgba(90,122,90,0.35)", borderRadius: 16, padding: "24px 20px", backdropFilter: "blur(10px)", boxShadow: "0 2px 20px rgba(0,0,0,0.25)" }}>
 
           {etapa === "tipo" && (
             <>
               <p style={{ textAlign: "center", color: "#555555", fontFamily: "sans-serif", fontSize: 14, marginTop: 0, marginBottom: 28 }}>Qual documento deseja gerar?</p>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
                 {[
                   { id: "procuracao", icon: "📋", title: "Procuração", desc: "Instrumento de mandato para representação judicial" },
                   { id: "contrato", icon: "⚖️", title: "Contrato de Honorários", desc: "Contrato de prestação de serviços advocatícios" },
                   { id: "declaracao", icon: "📝", title: "Declaração de Justiça Gratuita", desc: "Declaração de hipossuficiência econômica" },
                   { id: "revogacao", icon: "🚫", title: "Revogação de Mandato", desc: "Revogação de procuração outorgada anteriormente" },
-                  { id: "residencia_propria", icon: "🏠", title: "Declaração de Residência Própria", desc: "Declaração de residência e domicílio" },
+                  { id: "residencia_propria", icon: "🏠", title: "Declaração de Residência Própria", desc: "Declaração de residência do proprietário do imóvel" },
                   { id: "amaisa", icon: "💑", title: "Declaração de Amásia", desc: "Declaração de união estável" },
                   { id: "proprietario", icon: "🔑", title: "Declaração Residencial (Proprietário)", desc: "Declaração do proprietário ao locatário" },
                 ].map((op) => (
@@ -219,7 +220,7 @@ export default function App() {
                 <span style={{ ...sLabel, margin: 0 }}>Confirme os dados do cliente</span>
                 <button onClick={() => setEtapa("input")} style={{ background: "none", border: "none", color: "#666666", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif" }}>← Voltar</button>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
                 {camposCliente.map(({ key, label, full }) => (
                   <Campo key={key} label={label} full={full} value={dados[key]} onChange={(v) => setDados(p => ({ ...p, [key]: v }))} />
                 ))}
@@ -236,7 +237,7 @@ export default function App() {
                 <span style={{ ...sLabel, margin: 0 }}>Dados financeiros do contrato</span>
                 <button onClick={() => setEtapa("revisao")} style={{ background: "none", border: "none", color: "#666666", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif" }}>← Voltar</button>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
                 <SecTitle>Processo</SecTitle>
                 <Campo label="Número do processo" full value={fin.numeroProcesso} onChange={(v) => setFin(p => ({ ...p, numeroProcesso: v }))} placeholder="0000000-00.0000.0.00.0000" />
 
@@ -261,7 +262,7 @@ export default function App() {
                 <button onClick={() => setEtapa("revisao")} style={{ background: "none", border: "none", color: "#666666", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif" }}>← Voltar</button>
               </div>
               {tipo === "amaisa" && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
                   <SecTitle>Dados da União Estável</SecTitle>
                   <Campo label="Data de início da união" value={fin.dataUniao || ""} onChange={(v) => setFin(p => ({ ...p, dataUniao: v }))} placeholder="dd/mm/aaaa" />
                   <SecTitle>Dados do Preso</SecTitle>
@@ -274,7 +275,7 @@ export default function App() {
                 </div>
               )}
               {tipo === "proprietario" && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
                   <SecTitle>Endereço do Imóvel Alugado</SecTitle>
                   <Campo label="Endereço completo do imóvel" full value={fin.enderecoImovel || ""} onChange={(v) => setFin(p => ({ ...p, enderecoImovel: v }))} placeholder="Rua Exemplo, 123, Bairro, São Paulo – SP, CEP 00000-000" />
                   <SecTitle>Dados do Locatário (Cliente)</SecTitle>
@@ -283,7 +284,7 @@ export default function App() {
                 </div>
               )}
               {tipo === "revogacao" && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
                   <SecTitle>Dados da Revogação</SecTitle>
                   <Campo label="Número do processo" full value={fin.numeroProcesso || ""} onChange={(v) => setFin(p => ({ ...p, numeroProcesso: v }))} placeholder="0000000-00.0000.0.00.0000" />
                 </div>
