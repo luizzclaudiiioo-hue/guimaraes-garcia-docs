@@ -89,20 +89,20 @@ export default function App() {
         <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@700&display=swap" rel="stylesheet" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
         <div style={{ minHeight: "100vh", background: "#d4dbd4", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "20px 16px" }}>
-          <div style={{ width: "100%", maxWidth: 380, textAlign: "center" }}>
+          <div style={{ width: "100%", maxWidth: 500, textAlign: "center" }}>
 
             {/* Nome do escritório */}
-            <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(18px, 3.5vw, 26px)", letterSpacing: 2, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", whiteSpace: "nowrap", marginBottom: 8 }}>
+            <div style={{ color: GOLD, fontSize: "clamp(24px, 5vw, 40px)", letterSpacing: 4, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", whiteSpace: "nowrap", marginBottom: 10 }}>
               GUIMARÃES & GARCIA
             </div>
 
             {/* Subtítulo */}
-            <div style={{ color: "#555", fontSize: 10, letterSpacing: 3, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", fontWeight: "700", marginBottom: 16 }}>
+            <div style={{ color: "#555", fontSize: 11, letterSpacing: 4, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", fontWeight: "700", marginBottom: 18 }}>
               SOCIEDADE DE ADVOGADOS
             </div>
 
             {/* Linha divisória */}
-            <div style={{ width: 40, height: 1, background: "#999", margin: "0 auto 28px" }} />
+            <div style={{ width: 40, height: 1, background: "#999", margin: "0 auto 36px" }} />
 
             {/* Formulário alinhado à esquerda */}
             <div style={{ textAlign: "left" }}>
@@ -208,10 +208,10 @@ export default function App() {
       <div style={{ maxWidth: 700, margin: "0 auto" }}>
 
         <div style={{ textAlign: "center", marginBottom: 36 }}>
-          <div style={{ display: "inline-block", background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(16px, 5vw, 22px)", letterSpacing: 3, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", lineHeight: 1.3 }}>
+          <div style={{ display: "inline-block", color: GOLD, fontSize: "clamp(16px, 5vw, 22px)", letterSpacing: 3, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", lineHeight: 1.3 }}>
             GUIMARÃES & GARCIA
           </div>
-          <div style={{ display: "block", background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: 11, letterSpacing: 3, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", marginTop: 4, opacity: 0.85 }}>
+          <div style={{ display: "block", color: GOLD, fontSize: 11, letterSpacing: 3, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", marginTop: 4, opacity: 0.85 }}>
             SOCIEDADE DE ADVOGADOS
           </div>
         </div>
