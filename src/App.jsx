@@ -94,7 +94,7 @@ export default function App() {
               <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(18px, 4vw, 28px)", letterSpacing: 5, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", lineHeight: 1.3, whiteSpace: "nowrap" }}>
                 GUIMARÃES & GARCIA
               </div>
-              <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(9px, 1.5vw, 12px)", letterSpacing: 5, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", marginTop: 6, opacity: 0.85 }}>
+              <div style={{ color: "#1a1a1a", fontSize: "clamp(9px, 1.5vw, 12px)", letterSpacing: 5, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", marginTop: 6, fontWeight: "700" }}>
                 SOCIEDADE DE ADVOGADOS
               </div>
               <div style={{ width: 60, height: 2, background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, margin: "20px auto 0" }} />
