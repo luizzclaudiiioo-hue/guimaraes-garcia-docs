@@ -89,22 +89,22 @@ export default function App() {
         <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@700&display=swap" rel="stylesheet" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
         <div style={{ minHeight: "100vh", background: "#d4dbd4", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "20px 16px" }}>
-          <div style={{ width: "100%", maxWidth: 600, textAlign: "center", margin: "0 auto" }}>
+          <div style={{ width: "100%", maxWidth: 420, textAlign: "center", margin: "0 auto" }}>
 
             {/* Nome do escritório */}
-            <div style={{ color: GOLD, fontSize: "clamp(24px, 5vw, 40px)", letterSpacing: 4, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", marginBottom: 10 }}>
+            <div style={{ color: GOLD, fontSize: "clamp(16px, 2.5vw, 22px)", letterSpacing: 3, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", marginBottom: 8 }}>
               GUIMARÃES & GARCIA
             </div>
 
             {/* Subtítulo */}
-            <div style={{ color: "#555", fontSize: 11, letterSpacing: 4, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", fontWeight: "700", marginBottom: 18 }}>
+            <div style={{ color: "#555", fontSize: 10, letterSpacing: 4, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", fontWeight: "700", marginBottom: 14 }}>
               SOCIEDADE DE ADVOGADOS
             </div>
 
             {/* Linha divisória */}
-            <div style={{ width: 40, height: 1, background: "#999", margin: "0 auto 36px" }} />
+            <div style={{ width: 36, height: 1, background: "#999", margin: "0 auto 28px" }} />
 
-            {/* Formulário alinhado à esquerda */}
+            {/* Formulário */}
             <div style={{ textAlign: "center" }}>
               <label style={{ ...sLabel, color: "#888", textAlign: "center", display: "block" }}>Senha de acesso</label>
               <input
@@ -113,10 +113,10 @@ export default function App() {
                 onChange={(e) => { setSenha(e.target.value); setErroSenha(false); }}
                 onKeyDown={(e) => e.key === "Enter" && verificarSenha()}
                 placeholder="Digite sua senha"
-                style={{ ...sInput(erroSenha), background: "rgba(255,255,255,0.5)", border: erroSenha ? "1px solid #c0392b" : "1px solid rgba(0,0,0,0.15)", color: "#2a2a2a", marginBottom: 4, maxWidth: 300, display: "block", margin: "6px auto 4px" }}
+                style={{ ...sInput(erroSenha), background: "rgba(255,255,255,0.5)", border: erroSenha ? "1px solid #c0392b" : "1px solid rgba(0,0,0,0.15)", color: "#2a2a2a", marginBottom: 4, maxWidth: 340, display: "block", margin: "6px auto 4px" }}
               />
               {erroSenha && <p style={{ color: "#c0392b", fontSize: 12, fontFamily: "sans-serif", margin: "6px 0 0" }}>Senha incorreta. Tente novamente.</p>}
-              <button onClick={verificarSenha} style={{ ...sBtn(!senha), marginTop: 12, maxWidth: 300, margin: "12px auto 0", display: "block" }}>
+              <button onClick={verificarSenha} style={{ ...sBtn(!senha), marginTop: 12, maxWidth: 340, margin: "12px auto 0", display: "block" }}>
                 Entrar
               </button>
             </div>
