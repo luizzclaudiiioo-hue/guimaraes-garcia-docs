@@ -35,8 +35,8 @@ function parcelasVazias(n) {
   }));
 }
 
-const GOLD = "#c9a84c";
-const GOLD_L = "#e8c96a";
+const GOLD = "#9a6e1e";
+const GOLD_L = "#b8891f";
 
 const sLabel = { display: "block", fontSize: 11, color: "#555555", marginBottom: 5, fontFamily: "sans-serif", letterSpacing: 1, textTransform: "uppercase" };
 const sInput = (vazio) => ({ width: "100%", background: vazio ? "rgba(180,60,60,0.10)" : "rgba(0,0,0,0.06)", border: vazio ? "1px solid rgba(200,80,80,0.5)" : "1px solid rgba(90,122,90,0.3)", borderRadius: 8, color: "#2a2a2a", fontSize: 14, padding: "9px 12px", fontFamily: "sans-serif", outline: "none", boxSizing: "border-box" });
@@ -89,20 +89,20 @@ export default function App() {
         <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@700&display=swap" rel="stylesheet" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
         <div style={{ minHeight: "100vh", background: "#d4dbd4", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "20px 16px" }}>
-          <div style={{ width: "100%", maxWidth: 480, textAlign: "center" }}>
+          <div style={{ width: "100%", maxWidth: 420, textAlign: "center" }}>
 
             {/* Nome do escritório */}
-            <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(22px, 5vw, 36px)", letterSpacing: 6, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", whiteSpace: "nowrap", marginBottom: 8 }}>
+            <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(20px, 4.5vw, 32px)", letterSpacing: 4, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", whiteSpace: "nowrap", marginBottom: 8 }}>
               GUIMARÃES & GARCIA
             </div>
 
             {/* Subtítulo */}
-            <div style={{ color: "#555", fontSize: "clamp(9px, 1.5vw, 11px)", letterSpacing: 5, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", fontWeight: "700", marginBottom: 20 }}>
+            <div style={{ color: "#555", fontSize: "clamp(9px, 1.5vw, 11px)", letterSpacing: 4, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", fontWeight: "700", marginBottom: 16 }}>
               SOCIEDADE DE ADVOGADOS
             </div>
 
             {/* Linha divisória */}
-            <div style={{ width: 50, height: 2, background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, margin: "0 auto 36px" }} />
+            <div style={{ width: 40, height: 1, background: "#999", margin: "0 auto 28px" }} />
 
             {/* Formulário alinhado à esquerda */}
             <div style={{ textAlign: "left" }}>
