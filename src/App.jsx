@@ -89,10 +89,10 @@ export default function App() {
         <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@700&display=swap" rel="stylesheet" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
         <div style={{ minHeight: "100vh", background: "#d4dbd4", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "20px 16px" }}>
-          <div style={{ width: "100%", maxWidth: 500, textAlign: "center" }}>
+          <div style={{ width: "100%", maxWidth: 600, textAlign: "center", margin: "0 auto" }}>
 
             {/* Nome do escritório */}
-            <div style={{ color: GOLD, fontSize: "clamp(24px, 5vw, 40px)", letterSpacing: 4, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", whiteSpace: "nowrap", marginBottom: 10 }}>
+            <div style={{ color: GOLD, fontSize: "clamp(24px, 5vw, 40px)", letterSpacing: 4, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", marginBottom: 10 }}>
               GUIMARÃES & GARCIA
             </div>
 
