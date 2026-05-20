@@ -89,15 +89,15 @@ export default function App() {
         <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@700&display=swap" rel="stylesheet" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
         <div style={{ minHeight: "100vh", background: "#d4dbd4", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "20px 16px" }}>
-          <div style={{ width: "100%", maxWidth: 420, textAlign: "center" }}>
+          <div style={{ width: "100%", maxWidth: 380, textAlign: "center" }}>
 
             {/* Nome do escritório */}
-            <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(20px, 4.5vw, 32px)", letterSpacing: 4, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", whiteSpace: "nowrap", marginBottom: 8 }}>
+            <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(18px, 3.5vw, 26px)", letterSpacing: 2, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", whiteSpace: "nowrap", marginBottom: 8 }}>
               GUIMARÃES & GARCIA
             </div>
 
             {/* Subtítulo */}
-            <div style={{ color: "#555", fontSize: "clamp(9px, 1.5vw, 11px)", letterSpacing: 4, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", fontWeight: "700", marginBottom: 16 }}>
+            <div style={{ color: "#555", fontSize: 10, letterSpacing: 3, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", fontWeight: "700", marginBottom: 16 }}>
               SOCIEDADE DE ADVOGADOS
             </div>
 
