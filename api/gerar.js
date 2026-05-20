@@ -1,377 +1,430 @@
-import { useState } from "react";
+const JSZip = require('jszip');
 
-const ANTHROPIC_MODEL = "claude-sonnet-4-5";
+const GITHUB_USER = 'luizzclaudiiioo-hue';
+const GITHUB_REPO = 'guimaraes-garcia-docs';
+const GITHUB_BRANCH = 'main';
 
-const EXTRACTION_PROMPT = `Você é um assistente jurídico. Extraia os dados do cliente a partir do texto abaixo, que foi enviado via WhatsApp em resposta a um script de coleta de dados para elaboração de documentos jurídicos.
+const EXTENSO_NUM = {
+  1:'uma',2:'duas',3:'três',4:'quatro',5:'cinco',6:'seis',7:'sete',8:'oito',9:'nove',10:'dez',
+  11:'onze',12:'doze',13:'treze',14:'quatorze',15:'quinze',16:'dezesseis',17:'dezessete',18:'dezoito',19:'dezenove',20:'vinte'
+};
 
-Retorne APENAS um JSON válido, sem markdown, sem texto adicional, com exatamente estas chaves:
-{
-  "nome": "",
-  "estado_civil": "",
-  "profissao": "",
-  "rg": "",
-  "orgao_expeditor": "",
-  "cpf": "",
-  "rua": "",
-  "numero": "",
-  "bairro": "",
-  "cidade": "",
-  "estado": "",
-  "cep": "",
-  "email": ""
-}
+function numExtenso(n) { return EXTENSO_NUM[parseInt(n)] || n; }
 
-Se algum dado não for encontrado, deixe o campo com string vazia.
-Para RG e órgão expedidor: separe o número do RG do órgão (ex: "12.345.678-9 SSP/SP" → rg: "12.345.678-9", orgao_expeditor: "SSP/SP").
-Para estado civil e profissão: normalize para minúsculas.
-
-Texto do cliente:`;
-
-function parcelasVazias(n) {
-  return Array.from({ length: n }, (_, i) => ({
-    label: i === 0 ? "Entrada" : `${i}ª parcela`,
-    valor: "",
-    data: "",
-  }));
-}
-
-const GOLD = "#c9a84c";
-const GOLD_L = "#e8c96a";
-
-const sLabel = { display: "block", fontSize: 11, color: "#555555", marginBottom: 5, fontFamily: "sans-serif", letterSpacing: 1, textTransform: "uppercase" };
-const sInput = (vazio) => ({ width: "100%", background: vazio ? "rgba(180,60,60,0.10)" : "rgba(0,0,0,0.06)", border: vazio ? "1px solid rgba(200,80,80,0.5)" : "1px solid rgba(90,122,90,0.3)", borderRadius: 8, color: "#2a2a2a", fontSize: 14, padding: "9px 12px", fontFamily: "sans-serif", outline: "none", boxSizing: "border-box" });
-const sBtn = (dis) => ({ marginTop: 20, width: "100%", padding: "14px 0", background: dis ? "rgba(201,168,76,0.3)" : `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, border: "none", borderRadius: 10, color: dis ? "#8a7a50" : "#1a2940", fontSize: 15, fontWeight: "bold", cursor: dis ? "not-allowed" : "pointer", fontFamily: "sans-serif", letterSpacing: 1 });
-
-function Campo({ label, value, onChange, full, placeholder }) {
-  return (
-    <div style={{ gridColumn: full ? "1 / -1" : "auto" }}>
-      <label style={sLabel}>{label}</label>
-      <input value={value || ""} placeholder={placeholder || ""} onChange={(e) => onChange(e.target.value)} style={sInput(!value)} />
-    </div>
-  );
-}
-
-function SecTitle({ children }) {
-  return (
-    <div style={{ gridColumn: "1 / -1", borderBottom: "1px solid rgba(90,122,90,0.25)", paddingBottom: 6, marginTop: 12, marginBottom: 2 }}>
-      <span style={{ fontSize: 11, color: GOLD, letterSpacing: 2, textTransform: "uppercase", fontFamily: "sans-serif" }}>{children}</span>
-    </div>
-  );
-}
-
-export default function App() {
-  const [autenticado, setAutenticado] = useState(false);
-  const [senha, setSenha] = useState("");
-  const [erroSenha, setErroSenha] = useState(false);
-
-  function verificarSenha() {
-    const s1 = import.meta.env.VITE_SENHA_1;
-    const s2 = import.meta.env.VITE_SENHA_2;
-    if (senha === s1 || senha === s2) {
-      setAutenticado(true);
-      setErroSenha(false);
-    } else {
-      setErroSenha(true);
-      setSenha("");
+function valorExtenso(valor) {
+  if (!valor) return '';
+  const num = parseFloat((valor+'').replace(/R\$\s*/,'').replace(/\./g,'').replace(',','.'));
+  if (isNaN(num)) return valor;
+  const centavos = Math.round((num % 1) * 100);
+  const inteiro = Math.floor(num);
+  const unidades = ['','um','dois','três','quatro','cinco','seis','sete','oito','nove',
+    'dez','onze','doze','treze','quatorze','quinze','dezesseis','dezessete','dezoito','dezenove'];
+  const dezenas = ['','','vinte','trinta','quarenta','cinquenta','sessenta','setenta','oitenta','noventa'];
+  const centenas = ['','cem','duzentos','trezentos','quatrocentos','quinhentos',
+    'seiscentos','setecentos','oitocentos','novecentos'];
+  function menosDeMil(n) {
+    if (n === 100) return 'cem';
+    const c = Math.floor(n/100), r = n%100;
+    if (r===0) return centenas[c];
+    if (r<20) return (c>0?centenas[c]+' e ':'')+unidades[r];
+    const d=Math.floor(r/10),u=r%10;
+    return (c>0?centenas[c]+' e ':'')+dezenas[d]+(u>0?' e '+unidades[u]:'');
+  }
+  function porExtenso(n) {
+    if (n===0) return 'zero';
+    if (n<1000) return menosDeMil(n);
+    if (n<1000000) {
+      const mil=Math.floor(n/1000), r=n%1000;
+      const milStr = mil===1?'mil':menosDeMil(mil)+' mil';
+      return r===0?milStr:milStr+' e '+menosDeMil(r);
     }
+    return String(n);
   }
+  const parteInteira = porExtenso(inteiro);
+  const moeda = inteiro===1?'real':'reais';
+  if (centavos===0) return parteInteira+' '+moeda;
+  return parteInteira+' '+moeda+' e '+menosDeMil(centavos)+(centavos===1?' centavo':' centavos');
+}
 
-  if (!autenticado) {
-    return (
-      <>
-        <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@700&display=swap" rel="stylesheet" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-        <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #3a4a3a 0%, #2e3d2e 100%)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px 12px" }}>
-          <div style={{ background: "#d4dbd4", borderRadius: 16, padding: "40px 32px", width: "100%", maxWidth: 360, boxShadow: "0 2px 20px rgba(0,0,0,0.25)" }}>
-            <div style={{ textAlign: "center", marginBottom: 32 }}>
-              <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(16px, 5vw, 20px)", letterSpacing: 3, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", lineHeight: 1.3 }}>
-                GUIMARÃES & GARCIA
-              </div>
-              <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: 10, letterSpacing: 3, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", marginTop: 4, opacity: 0.85 }}>
-                SOCIEDADE DE ADVOGADOS
-              </div>
-              <div style={{ width: 40, height: 2, background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, margin: "20px auto 0" }} />
-            </div>
-            <label style={sLabel}>Senha de acesso</label>
-            <input
-              type="password"
-              value={senha}
-              onChange={(e) => { setSenha(e.target.value); setErroSenha(false); }}
-              onKeyDown={(e) => e.key === "Enter" && verificarSenha()}
-              placeholder="Digite sua senha"
-              style={{ ...sInput(erroSenha), marginBottom: 4 }}
-            />
-            {erroSenha && <p style={{ color: "#c0392b", fontSize: 12, fontFamily: "sans-serif", margin: "6px 0 0" }}>Senha incorreta. Tente novamente.</p>}
-            <button onClick={verificarSenha} style={sBtn(!senha)}>
-              Entrar
-            </button>
-          </div>
-        </div>
-      </>
-    );
-  }
+async function fetchTemplate(filename) {
+  const url = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}/templates/${filename}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Template not found: ${filename} (${res.status})`);
+  return Buffer.from(await res.arrayBuffer());
+}
 
-  const [tipo, setTipo] = useState(null);
-  const [texto, setTexto] = useState("");
-  const [dados, setDados] = useState(null);
-  const [fin, setFin] = useState({ numeroProcesso: "", valorTotal: "", valorEntrada: "", valorParcela: "", numParcelasRestantes: "", percentualExito: "10% (dez por cento)" });
-  const [etapa, setEtapa] = useState("tipo");
-  const [carregando, setCarregando] = useState(false);
-  const [erro, setErro] = useState("");
+function isRed(rPrXml) { return /<w:color[^>]*w:val="(FF0000|EE0000)"/.test(rPrXml); }
 
-  async function extrairDados() {
-    if (!texto.trim()) return;
-    setCarregando(true); setErro("");
-    try {
-      const res = await fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: ANTHROPIC_MODEL, max_tokens: 1000, messages: [{ role: "user", content: EXTRACTION_PROMPT + "\n\n" + texto }] }),
-      });
-      const data = await res.json();
-      const parsed = JSON.parse((data.content?.[0]?.text || "{}").replace(/```json|```/g, "").trim());
-      setDados(parsed);
-      setEtapa("revisao");
-    } catch { setErro("Erro ao extrair dados. Verifique o texto e tente novamente."); }
-    finally { setCarregando(false); }
-  }
+function removeRedColor(rPrInner) {
+  return rPrInner.replace(/<w:color[^/]*\/>/g,'').replace(/<w:color[^>]*>[\s\S]*?<\/w:color>/g,'');
+}
 
-  async function gerarDoc() {
-    setEtapa("gerando");
-    try {
-      const res = await fetch("/api/gerar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tipo, dados, financeiro: fin }),
-      });
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Erro ao gerar documento");
+function substituirPorIndice(xml, mapa) {
+  let redIdx = 0;
+  return xml.replace(/(<w:r)([ >])([\s\S]*?)(<\/w:r>)/g, (match, tag, sep, inner, close) => {
+    const rPrMatch = inner.match(/(<w:rPr>)([\s\S]*?)(<\/w:rPr>)/);
+    if (rPrMatch && isRed(rPrMatch[0])) {
+      const currentIdx = redIdx++;
+      const entry = mapa.find(m => m.index === currentIdx);
+      const valor = entry !== undefined ? esc(entry.value) : '';
+      const newRPr = rPrMatch[1] + removeRedColor(rPrMatch[2]) + rPrMatch[3];
+      let newInner = inner.replace(/(<w:rPr>)([\s\S]*?)(<\/w:rPr>)/, newRPr);
+      newInner = newInner.replace(/<w:t[^>]*>[\s\S]*?<\/w:t>/, `<w:t xml:space="preserve">${valor}</w:t>`);
+      return tag + sep + newInner + close;
+    }
+    return match;
+  });
+}
+
+module.exports = async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  try {
+    const { tipo, dados: d, financeiro: fin } = req.body;
+    // Usar horário de São Paulo (UTC-3) para evitar erro de data no servidor UTC
+    const agora = new Date();
+    const spOffset = -3 * 60; // UTC-3 em minutos
+    const spTime = new Date(agora.getTime() + (spOffset - agora.getTimezoneOffset()) * 60000);
+    const meses = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+    const dia = String(spTime.getDate());
+    const mes = meses[spTime.getMonth()];
+    const ano = String(spTime.getFullYear());
+
+    const filenameMap = {
+      procuracao: 'template_procuracao.docx',
+      contrato: 'template_contrato.docx',
+      declaracao: 'template_declaracao.docx',
+      revogacao: 'template_revogacao.docx',
+      residencia_propria: 'template_residencia_propria.docx',
+      amaisa: 'template_amaisa.docx',
+      proprietario: 'template_proprietario.docx',
+    };
+    const filename = filenameMap[tipo];
+    if (!filename) return res.status(400).json({ error: `Tipo desconhecido: ${tipo}` });
+    const templateBuf = await fetchTemplate(filename);
+    const zip = await JSZip.loadAsync(templateBuf);
+    let xml = await zip.file('word/document.xml').async('string');
+
+    if (tipo === 'procuracao') {
+      const nome = d.nome.toUpperCase();
+      const mapa = [
+        { index: 0,  value: nome },
+        { index: 1,  value: '' },
+        { index: 2,  value: 'brasileiro(a)' },
+        { index: 3,  value: '' },
+        { index: 4,  value: d.estado_civil },
+        { index: 5,  value: '' },
+        { index: 6,  value: d.profissao },
+        { index: 7,  value: '' },
+        { index: 8,  value: d.rg },
+        { index: 9,  value: d.cpf },
+        // RED[10]: endereço completo (template unificado)
+        { index: 10, value: d.rua + ', ' + d.numero + ', ' + d.bairro + ', ' + d.cidade + ' - ' + d.estado + ', CEP ' + d.cep },
+        // RED[11]: email (antes era RED[21])
+        { index: 11, value: d.email },
+        // RED[12]: dia
+        { index: 12, value: dia },
+        // RED[13]: mês
+        { index: 13, value: mes },
+        // RED[14]: nome assinatura
+        { index: 14, value: nome },
+        { index: 15, value: '' },
+      ];
+      xml = substituirPorIndice(xml, mapa);
+
+      // Remove vírgulas duplicadas geradas por campos vazios no endereço
+      xml = xml.replace(/,\s*,\s*,/g, ',').replace(/,\s*,/g, ',');
+
+    } else if (tipo === 'contrato') {
+      const nome = d.nome.toUpperCase();
+      const orgao = d.orgao_expeditor || ('SSP/' + d.estado);
+      const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
+      const entrada = fin.valorEntrada || '';
+      const numParc = fin.numParcelasRestantes;
+      const numParcExtenso = numExtenso(numParc);
+      const stripRS = v => (v||'').replace(/^R\$\s*/,'');
+
+      // Extensos automáticos
+      const entradaExtenso = valorExtenso(entrada);
+      const parcelaExtenso = valorExtenso(fin.valorParcela);
+
+      const mapa = [
+        // Para 6
+        { index: 0,  value: nome },
+        { index: 1,  value: 'brasileiro(a)' },
+        { index: 2,  value: '' },
+        { index: 3,  value: '' },
+        { index: 4,  value: d.estado_civil },
+        { index: 5,  value: d.profissao },
+        { index: 6,  value: d.rg },
+        { index: 7,  value: orgao + ',' },
+        { index: 8,  value: ' ' },
+        { index: 9,  value: d.cpf },
+        { index: 10, value: enderecoCompleto },
+        { index: 11, value: d.email },
+        // Para 13
+        { index: 12, value: fin.numeroProcesso },
+        // Para 19 — valor total
+        // RED[13]='R$' RED[14]=' ' RED[15-17]=número
+        { index: 13, value: 'R$' },
+        { index: 14, value: ' ' },
+        { index: 15, value: stripRS(fin.valorTotal) },
+        { index: 16, value: '' },
+        { index: 17, value: '' },
+        // RED[18]=' (' RED[19-23]=extenso
+        { index: 18, value: ' (' },
+        { index: 19, value: valorExtenso(fin.valorTotal) + ')' },
+        { index: 20, value: '' },
+        { index: 21, value: '' },
+        { index: 22, value: '' },
+        { index: 23, value: '' },
+        // RED[24-28]=valor entrada
+        { index: 24, value: stripRS(entrada) },
+        { index: 25, value: '' },
+        { index: 26, value: '' },
+        { index: 27, value: '' },
+        { index: 28, value: ' (' },
+        // RED[29-32]=extenso entrada — automático
+        { index: 29, value: entradaExtenso + ')' },
+        { index: 30, value: '' },
+        { index: 31, value: '' },
+        { index: 32, value: '' },
+        // RED[33]=num parcelas
+        { index: 33, value: numParc },
+        // RED[34]=' ('
+        { index: 34, value: ' (' },
+        // RED[35]=extenso num parcelas — automático
+        { index: 35, value: numParcExtenso },
+        // RED[36]=') parcelas de R$ '
+        { index: 36, value: ') parcelas de R$ ' },
+        // RED[37-38]=valor parcela
+        { index: 37, value: stripRS(fin.valorParcela) },
+        { index: 38, value: '' },
+        // RED[39-43]=extenso parcela — automático
+        { index: 39, value: ' (' },
+        { index: 40, value: parcelaExtenso + ')' },
+        { index: 41, value: '' },
+        { index: 42, value: '' },
+        { index: 43, value: '' },
+        // Para 86 — data
+        { index: 44, value: 'São Paulo' },
+        { index: 45, value: ', ' },
+        { index: 46, value: dia },
+        { index: 47, value: '' },
+        { index: 48, value: ' ' },
+        { index: 49, value: 'de ' },
+        { index: 50, value: mes + ' ' },
+        { index: 51, value: 'de ' },
+        { index: 52, value: ano.substring(0,3) },
+        { index: 53, value: ano.substring(3) },
+        { index: 54, value: '.' },
+        // Para 91 — assinatura
+        { index: 55, value: nome },
+      ];
+
+      xml = substituirPorIndice(xml, mapa);
+
+    } else if (tipo === 'declaracao') {
+      // RED[0]=nome, [1]=nacionalidade, [2]=estado_civil, [3]=profissao,
+      // [4]=RG, [5]=CPF (SSP/SP é fixo no template), [6]=endereco, [7]=email,
+      // [8]='São Paulo, ' [9]=dia [10]=' de ' [11]=mes [12]='de ANO' [13]=ultimo_digito_ano [14]='.' [15]=nome
+      const nome = d.nome.toUpperCase();
+      const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
+      const mapa = [
+        { index: 0,  value: nome },
+        { index: 1,  value: 'brasileiro(a)' },
+        { index: 2,  value: d.estado_civil },
+        { index: 3,  value: d.profissao },
+        { index: 4,  value: d.rg },
+        { index: 5,  value: d.cpf },
+        { index: 6,  value: enderecoCompleto },
+        { index: 7,  value: d.email },
+        { index: 8,  value: 'São Paulo, ' },
+        { index: 9,  value: dia },
+        { index: 10, value: ' de ' },
+        { index: 11, value: mes + ' ' },
+        { index: 12, value: 'de ' + ano.substring(0,3) },
+        { index: 13, value: ano.substring(3) },
+        { index: 14, value: '.' },
+        { index: 15, value: nome },
+      ];
+      xml = substituirPorIndice(xml, mapa);
+
+    } else if (tipo === 'revogacao') {
+      const nome = d.nome.toUpperCase();
+      const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
+      const mapa = [
+        { index: 0,  value: nome },
+        { index: 1,  value: 'brasileiro(a)' },
+        { index: 2,  value: d.estado_civil },
+        { index: 3,  value: d.profissao },
+        { index: 4,  value: d.rg },
+        { index: 5,  value: d.cpf },
+        { index: 6,  value: enderecoCompleto },
+        { index: 7,  value: d.email },
+        { index: 8,  value: fin.numeroProcesso || '' },
+        { index: 9,  value: 'São Paulo, ' + dia + ' de ' + mes + ' de ' + ano + '.' },
+        { index: 10, value: nome },
+      ];
+      xml = substituirPorIndice(xml, mapa);
+
+    } else if (tipo === 'residencia_propria') {
+      // RED[0]=nome, [1]=nacionalidade, [2]=estado_civil, [3]=profissao,
+      // [4]=RG, [5]=SSP/orgao, [6]=CPF, [7]=endereco, [8]=email,
+      // [9]=endereco (repetido no corpo), [10]='.' (ponto final bold)
+      // Atenção: data e assinatura são FIXAS no template (não são vermelhas)
+      const nome = d.nome.toUpperCase();
+      const orgao = d.orgao_expeditor || ('SSP/' + d.estado);
+      const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
+      const mapa = [
+        { index: 0,  value: nome },
+        { index: 1,  value: 'brasileiro(a)' },
+        { index: 2,  value: d.estado_civil },
+        { index: 3,  value: d.profissao },
+        { index: 4,  value: d.rg },
+        { index: 5,  value: orgao },
+        { index: 6,  value: d.cpf },
+        { index: 7,  value: enderecoCompleto },
+        { index: 8,  value: d.email },
+        { index: 9,  value: enderecoCompleto },
+        { index: 10, value: '.' },
+        // RED[11] e [12] têm cor EE0000 (data e assinatura)
+        { index: 11, value: `${d.cidade || 'São Paulo'}, ${dia} de ${mes} de ${ano}.` },
+        { index: 12, value: nome },
+      ];
+      xml = substituirPorIndice(xml, mapa);
+
+    } else if (tipo === 'amaisa') {
+      // ESTRUTURA DO TEMPLATE AMÁSIA:
+      // Quem assina ("Eu") = esposa/companheira = dados do cliente (d)
+      // Quem está preso = RED[14-23] = fin.nomePreso, fin.rgPreso, fin.cpfPreso, fin.localDetencao, fin.matricula
+      // RED[0-1]=nome esposa, [2]=RG esposa, [3]=orgao, [4]=CPF esposa,
+      // [5]=endereco, [6]=email,
+      // [7-13]=tempo de união (anos e meses),
+      // [14-15]=nome preso, [16]=RG preso, [17-19]=orgao preso (SSP/SP em 3 runs),
+      // [20]=CPF preso, [21-22]=local detenção, [23]=matrícula,
+      // [24-33]=data, [34]=vazio, [35-36]=assinatura (nome esposa)
+      const nomeEsposa = d.nome.toUpperCase();
+      const nomePreso = (fin.nomePreso || '').toUpperCase();
+      const orgao = d.orgao_expeditor || ('SSP/' + d.estado);
+      const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
+      // Calcular tempo de união
+      let anosUniao = '0', mesesUniao = '0';
+      if (fin.dataUniao) {
+        const partes = fin.dataUniao.split('/');
+        if (partes.length === 3) {
+          const inicio = new Date(Number(partes[2]), Number(partes[1]) - 1, Number(partes[0]));
+          const agora = new Date();
+          let diffMeses = (agora.getFullYear() - inicio.getFullYear()) * 12 + (agora.getMonth() - inicio.getMonth());
+          anosUniao = String(Math.floor(diffMeses / 12));
+          mesesUniao = String(diffMeses % 12);
+        }
       }
+      // Separar orgão do preso em SSP / SP
+      const orgaoPreso = fin.orgaoPreso || 'SSP/SP';
+      const orgaoPartes = orgaoPreso.split('/');
+      const orgaoParte1 = orgaoPartes[0] || 'SSP';
+      const orgaoParte2 = orgaoPartes[1] || 'SP';
+      const mapa = [
+        { index: 0,  value: nomeEsposa.split(' ')[0] + ' ' },
+        { index: 1,  value: nomeEsposa.split(' ').slice(1).join(' ') },
+        { index: 2,  value: d.rg },
+        { index: 3,  value: orgao },
+        { index: 4,  value: d.cpf },
+        { index: 5,  value: enderecoCompleto },
+        { index: 6,  value: d.email },
+        { index: 7,  value: anosUniao },
+        { index: 8,  value: ' ' },
+        { index: 9,  value: Number(anosUniao) === 1 ? 'ano' : 'anos' },
+        { index: 10, value: ' ' },
+        { index: 11, value: 'e ' },
+        { index: 12, value: mesesUniao },
+        { index: 13, value: ' meses' },
+        { index: 14, value: nomePreso.split(' ')[0] },
+        { index: 15, value: ' ' + nomePreso.split(' ').slice(1).join(' ') },
+        // RED[16] = EE0000 espaço vazio - ignorar
+        { index: 16, value: '' },
+        { index: 17, value: fin.rgPreso || '' },
+        { index: 18, value: orgaoParte1 },
+        { index: 19, value: '/' },
+        { index: 20, value: orgaoParte2 },
+        { index: 21, value: fin.cpfPreso || '' },
+        { index: 22, value: fin.localDetencao ? fin.localDetencao.split(',')[0] || '' : '' },
+        { index: 23, value: fin.localDetencao ? (fin.localDetencao.split(',')[1] || '').trim() : '' },
+        { index: 24, value: fin.matricula || '' },
+        { index: 25, value: 'São Paulo, ' },
+        { index: 26, value: dia },
+        { index: 27, value: ' de' },
+        { index: 28, value: ' ' },
+        { index: 29, value: mes },
+        { index: 30, value: ' ' },
+        { index: 31, value: 'de' },
+        { index: 32, value: ' ' },
+        { index: 33, value: ano.substring(0,3) },
+        { index: 34, value: ano.substring(3) },
+        { index: 35, value: '' },
+        { index: 36, value: nomeEsposa.split(' ')[0] },
+        { index: 37, value: ' ' + nomeEsposa.split(' ').slice(1).join(' ') },
+      ];
+      xml = substituirPorIndice(xml, mapa);
 
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      const nomesArquivo = {
-        procuracao: "Procuracao_",
-        contrato: "Contrato_",
-        declaracao: "Declaracao_Hipossuficiencia_",
-        revogacao: "Revogacao_Mandato_",
-        residencia_propria: "Declaracao_Residencia_",
-        amaisa: "Declaracao_Amaisa_",
-        proprietario: "Declaracao_Proprietario_",
-      };
-      a.download = `${nomesArquivo[tipo] || "Documento_"}${dados.nome.replace(/\s+/g, "_")}.docx`;
-      a.click();
-      URL.revokeObjectURL(url);
-      setEtapa("pronto");
-    } catch (e) {
-      setErro("Erro ao gerar documento: " + e.message);
-      setEtapa(tipo === "contrato" ? "financeiro" : "revisao");
+    } else if (tipo === 'proprietario') {
+      // d = dados do PROPRIETÁRIO (extraídos do WhatsApp na etapa de revisão)
+      // fin = endereço do imóvel + dados do locatário (cliente)
+      const nomeLocador = d.nome.toUpperCase();
+      const orgaoLocador = d.orgao_expeditor || ('SSP/' + d.estado);
+      const enderecoLocador = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
+      const enderecoImovel = fin.enderecoImovel || '';
+      const nomeLocatario = (fin.nomeLocatario || '').toUpperCase();
+      const cpfLocatario = fin.cpfLocatario || '';
+      const mapa = [
+        { index: 0,  value: nomeLocador.split(' ')[0] + ' ' },
+        { index: 1,  value: nomeLocador.split(' ').slice(1).join(' ') },
+        { index: 2,  value: 'brasileiro(a)' },
+        { index: 3,  value: d.rg },
+        { index: 4,  value: orgaoLocador },
+        { index: 5,  value: d.cpf },
+        { index: 6,  value: enderecoLocador },
+        { index: 7,  value: enderecoImovel },
+        { index: 8,  value: '' },
+        { index: 9,  value: '' },
+        { index: 10, value: nomeLocatario },
+        { index: 11, value: cpfLocatario },
+        { index: 12, value: 'São Paulo, ' },
+        { index: 13, value: dia },
+        { index: 14, value: ' de ' },
+        { index: 15, value: mes },
+        { index: 16, value: ' de' },
+        { index: 17, value: ' ' + ano },
+        { index: 18, value: '.' },
+        { index: 19, value: nomeLocador },
+      ];
+      xml = substituirPorIndice(xml, mapa);
     }
+
+    zip.file('word/document.xml', xml);
+    const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+    const nomesArquivo = {
+      procuracao: 'Procuracao_',
+      contrato: 'Contrato_',
+      declaracao: 'Declaracao_Hipossuficiencia_',
+      revogacao: 'Revogacao_Mandato_',
+      residencia_propria: 'Declaracao_Residencia_',
+      amaisa: 'Declaracao_Amaisa_',
+      proprietario: 'Declaracao_Proprietario_',
+    };
+    const nomeArq = (nomesArquivo[tipo] || 'Documento_') + d.nome.replace(/\s+/g,'_') + '.docx';
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', 'attachment; filename="' + nomeArq + '"');
+    return res.status(200).send(buf);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
   }
-
-  function resetar() {
-    setTipo(null); setTexto(""); setDados(null); setErro("");
-    setFin({ numeroProcesso: "", valorTotal: "", valorEntrada: "", valorParcela: "", numParcelasRestantes: "", percentualExito: "10% (dez por cento)" });
-    setEtapa("tipo");
-  }
-
-  const camposCliente = [
-    { key: "nome", label: "Nome completo", full: true },
-    { key: "estado_civil", label: "Estado civil" }, { key: "profissao", label: "Profissão" },
-    { key: "rg", label: "RG" }, { key: "orgao_expeditor", label: "Órgão expedidor" },
-    { key: "cpf", label: "CPF" },
-    { key: "rua", label: "Rua", full: true },
-    { key: "numero", label: "Número" }, { key: "bairro", label: "Bairro" },
-    { key: "cidade", label: "Cidade" }, { key: "estado", label: "Estado (sigla)" }, { key: "cep", label: "CEP" },
-    { key: "email", label: "E-mail", full: true },
-  ];
-
-  const tipoTemFinanceiro = tipo === "contrato";
-  const tipoTemDadosEspeciais = ["amaisa","proprietario","revogacao"].includes(tipo);
-  const steps = tipoTemFinanceiro ? ["Documento","Texto","Dados","Honorários","Pronto"] : tipoTemDadosEspeciais ? ["Documento","Texto","Dados","Extras","Pronto"] : ["Documento","Texto","Dados","Pronto"];
-  const etapaIdx = { tipo: 0, input: 1, revisao: 2, financeiro: 3, extras: 3, gerando: tipoTemFinanceiro ? 3 : tipoTemDadosEspeciais ? 3 : 2, pronto: tipoTemFinanceiro ? 4 : tipoTemDadosEspeciais ? 4 : 3 }[etapa] ?? 0;
-
-  return (
-    <>
-    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #3a4a3a 0%, #2e3d2e 100%)", fontFamily: "Georgia, serif", color: "#2a2a2a", padding: "20px 12px" }}>
-      <div style={{ maxWidth: 700, margin: "0 auto" }}>
-
-        <div style={{ textAlign: "center", marginBottom: 36 }}>
-          <div style={{ display: "inline-block", background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(16px, 5vw, 22px)", letterSpacing: 3, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", lineHeight: 1.3 }}>
-            GUIMARÃES & GARCIA
-          </div>
-          <div style={{ display: "block", background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: 11, letterSpacing: 3, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", marginTop: 4, opacity: 0.85 }}>
-            SOCIEDADE DE ADVOGADOS
-          </div>
-        </div>
-
-        {etapa !== "tipo" && (
-          <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 28, flexWrap: "wrap" }}>
-            {steps.map((s, i) => (
-              <div key={s} style={{ padding: "5px 14px", borderRadius: 20, fontSize: 12, fontFamily: "sans-serif", background: i < etapaIdx ? "#4a7a4a" : i === etapaIdx ? GOLD : "rgba(255,255,255,0.12)", color: i <= etapaIdx ? "#fff" : "#aaaaaa", transition: "all 0.3s" }}>
-                {i < etapaIdx ? "✓ " : ""}{s}
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div style={{ background: "#d4dbd4", border: "1px solid rgba(90,122,90,0.35)", borderRadius: 16, padding: "24px 20px", backdropFilter: "blur(10px)", boxShadow: "0 2px 20px rgba(0,0,0,0.25)" }}>
-
-          {etapa === "tipo" && (
-            <>
-              <p style={{ textAlign: "center", color: "#555555", fontFamily: "sans-serif", fontSize: 14, marginTop: 0, marginBottom: 28 }}>Qual documento deseja gerar?</p>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
-                {[
-                  { id: "procuracao", icon: "📋", title: "Procuração", desc: "Instrumento de mandato para representação judicial" },
-                  { id: "contrato", icon: "⚖️", title: "Contrato de Honorários", desc: "Contrato de prestação de serviços advocatícios" },
-                  { id: "declaracao", icon: "📝", title: "Declaração de Justiça Gratuita", desc: "Declaração de hipossuficiência econômica" },
-                  { id: "revogacao", icon: "🚫", title: "Revogação de Mandato", desc: "Revogação de procuração outorgada anteriormente" },
-                  { id: "residencia_propria", icon: "🏠", title: "Declaração de Residência Própria", desc: "Declaração de residência do proprietário do imóvel" },
-                  { id: "amaisa", icon: "💑", title: "Declaração de Amásia", desc: "Declaração de união estável" },
-                  { id: "proprietario", icon: "🔑", title: "Declaração Residencial (Proprietário)", desc: "Declaração do proprietário ao locatário" },
-                ].map((op) => (
-                  <button key={op.id} onClick={() => { setTipo(op.id); setEtapa("input"); }}
-                    style={{ background: "rgba(255,255,255,0.7)", border: "1px solid rgba(90,122,90,0.25)", borderRadius: 14, padding: "24px 16px", cursor: "pointer", textAlign: "center", color: "#2a2a2a", fontFamily: "Georgia, serif" }}
-                    onMouseEnter={e => e.currentTarget.style.borderColor = GOLD}
-                    onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(201,168,76,0.25)"}>
-                    <div style={{ fontSize: 36, marginBottom: 10 }}>{op.icon}</div>
-                    <div style={{ fontSize: 16, fontWeight: "bold", marginBottom: 8, color: GOLD }}>{op.title}</div>
-                    <div style={{ fontSize: 12, color: "#555555", fontFamily: "sans-serif", lineHeight: 1.5 }}>{op.desc}</div>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-
-          {etapa === "input" && (
-            <>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                <label style={{ ...sLabel, margin: 0 }}>Texto recebido do cliente (WhatsApp)</label>
-                <button onClick={() => setEtapa("tipo")} style={{ background: "none", border: "none", color: "#666666", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif" }}>← Voltar</button>
-              </div>
-              <textarea value={texto} onChange={(e) => setTexto(e.target.value)}
-                placeholder="Cole aqui a mensagem do cliente com os dados pessoais..."
-                style={{ width: "100%", minHeight: 200, background: "rgba(0,0,0,0.06)", border: "1px solid rgba(90,122,90,0.3)", borderRadius: 10, color: "#2a2a2a", fontSize: 14, padding: 16, fontFamily: "sans-serif", resize: "vertical", outline: "none", lineHeight: 1.6, boxSizing: "border-box" }} />
-              {erro && <p style={{ color: "#e05050", fontSize: 13, marginTop: 8, fontFamily: "sans-serif" }}>{erro}</p>}
-              <button onClick={extrairDados} disabled={carregando || !texto.trim()} style={sBtn(carregando || !texto.trim())}>
-                {carregando ? "⚙️  Extraindo dados..." : "Extrair Dados →"}
-              </button>
-            </>
-          )}
-
-          {etapa === "revisao" && dados && (
-            <>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                <span style={{ ...sLabel, margin: 0 }}>Confirme os dados do cliente</span>
-                <button onClick={() => setEtapa("input")} style={{ background: "none", border: "none", color: "#666666", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif" }}>← Voltar</button>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
-                {camposCliente.map(({ key, label, full }) => (
-                  <Campo key={key} label={label} full={full} value={dados[key]} onChange={(v) => setDados(p => ({ ...p, [key]: v }))} />
-                ))}
-              </div>
-              <button onClick={() => tipo === "contrato" ? setEtapa("financeiro") : tipoTemDadosEspeciais ? setEtapa("extras") : gerarDoc()} style={{ ...sBtn(false), marginTop: 24 }}>
-                {tipoTemFinanceiro ? "Próximo: Honorários →" : tipoTemDadosEspeciais ? "Próximo: Dados Extras →" : tipo === "declaracao" ? "📝  Gerar Declaração (.docx)" : "📋  Gerar Procuração (.docx)"}
-              </button>
-            </>
-          )}
-
-          {etapa === "financeiro" && (
-            <>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                <span style={{ ...sLabel, margin: 0 }}>Dados financeiros do contrato</span>
-                <button onClick={() => setEtapa("revisao")} style={{ background: "none", border: "none", color: "#666666", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif" }}>← Voltar</button>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
-                <SecTitle>Processo</SecTitle>
-                <Campo label="Número do processo" full value={fin.numeroProcesso} onChange={(v) => setFin(p => ({ ...p, numeroProcesso: v }))} placeholder="0000000-00.0000.0.00.0000" />
-
-                <SecTitle>Honorários</SecTitle>
-                <Campo label="Valor total (ex: R$ 10.000,00)" value={fin.valorTotal} onChange={(v) => setFin(p => ({ ...p, valorTotal: v }))} />
-                <Campo label="Valor da entrada" value={fin.valorEntrada} onChange={(v) => setFin(p => ({ ...p, valorEntrada: v }))} placeholder="R$ 0,00" />
-                <Campo label="Valor de cada parcela" value={fin.valorParcela} onChange={(v) => setFin(p => ({ ...p, valorParcela: v }))} placeholder="R$ 1.000,00" />
-                <Campo label="Nº de parcelas restantes" value={fin.numParcelasRestantes} onChange={(v) => setFin(p => ({ ...p, numParcelasRestantes: v }))} placeholder="5" />
-                <Campo label="Percentual de êxito" full value={fin.percentualExito} onChange={(v) => setFin(p => ({ ...p, percentualExito: v }))} />
-
-
-              </div>
-              {erro && <p style={{ color: "#e05050", fontSize: 13, marginTop: 12, fontFamily: "sans-serif" }}>{erro}</p>}
-              <button onClick={gerarDoc} style={{ ...sBtn(false), marginTop: 24 }}>⚖️  Gerar Contrato (.docx)</button>
-            </>
-          )}
-
-          {etapa === "extras" && (
-            <>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                <span style={{ ...sLabel, margin: 0 }}>Dados adicionais</span>
-                <button onClick={() => setEtapa("revisao")} style={{ background: "none", border: "none", color: "#666666", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif" }}>← Voltar</button>
-              </div>
-              {tipo === "amaisa" && (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
-                  <SecTitle>Dados da União Estável</SecTitle>
-                  <Campo label="Data de início da união" value={fin.dataUniao || ""} onChange={(v) => setFin(p => ({ ...p, dataUniao: v }))} placeholder="dd/mm/aaaa" />
-                  <SecTitle>Dados do Preso</SecTitle>
-                  <Campo label="Nome completo do preso" full value={fin.nomePreso || ""} onChange={(v) => setFin(p => ({ ...p, nomePreso: v }))} />
-                  <Campo label="RG do preso" value={fin.rgPreso || ""} onChange={(v) => setFin(p => ({ ...p, rgPreso: v }))} />
-                  <Campo label="Órgão expedidor (ex: SSP/SP)" value={fin.orgaoPreso || ""} onChange={(v) => setFin(p => ({ ...p, orgaoPreso: v }))} placeholder="SSP/SP" />
-                  <Campo label="CPF do preso" value={fin.cpfPreso || ""} onChange={(v) => setFin(p => ({ ...p, cpfPreso: v }))} />
-                  <Campo label="Local de detenção" full value={fin.localDetencao || ""} onChange={(v) => setFin(p => ({ ...p, localDetencao: v }))} placeholder="CDP de Chácara Belém I, São Paulo" />
-                  <Campo label="Matrícula" value={fin.matricula || ""} onChange={(v) => setFin(p => ({ ...p, matricula: v }))} />
-                </div>
-              )}
-              {tipo === "proprietario" && (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
-                  <SecTitle>Endereço do Imóvel Alugado</SecTitle>
-                  <Campo label="Endereço completo do imóvel" full value={fin.enderecoImovel || ""} onChange={(v) => setFin(p => ({ ...p, enderecoImovel: v }))} placeholder="Rua Exemplo, 123, Bairro, São Paulo – SP, CEP 00000-000" />
-                  <SecTitle>Dados do Locatário (Cliente)</SecTitle>
-                  <Campo label="Nome do locatário" full value={fin.nomeLocatario || ""} onChange={(v) => setFin(p => ({ ...p, nomeLocatario: v }))} />
-                  <Campo label="CPF do locatário" value={fin.cpfLocatario || ""} onChange={(v) => setFin(p => ({ ...p, cpfLocatario: v }))} />
-                </div>
-              )}
-              {tipo === "revogacao" && (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
-                  <SecTitle>Dados da Revogação</SecTitle>
-                  <Campo label="Número do processo" full value={fin.numeroProcesso || ""} onChange={(v) => setFin(p => ({ ...p, numeroProcesso: v }))} placeholder="0000000-00.0000.0.00.0000" />
-                </div>
-              )}
-              {erro && <p style={{ color: "#e05050", fontSize: 13, marginTop: 12, fontFamily: "sans-serif" }}>{erro}</p>}
-              <button onClick={gerarDoc} style={{ ...sBtn(false), marginTop: 24 }}>📄  Gerar Documento (.docx)</button>
-            </>
-          )}
-
-          {etapa === "gerando" && (
-            <div style={{ textAlign: "center", padding: "32px 0" }}>
-              <div style={{ fontSize: 48, marginBottom: 16 }}>⚙️</div>
-              <p style={{ color: "#555555", fontFamily: "sans-serif" }}>Gerando documento...</p>
-            </div>
-          )}
-
-          {etapa === "pronto" && (
-            <div style={{ textAlign: "center", padding: "20px 0" }}>
-              <div style={{ fontSize: 56, marginBottom: 16 }}>✅</div>
-              <h2 style={{ color: GOLD_L, fontWeight: "normal", marginBottom: 8 }}>
-                {tipo === "procuracao" ? "Procuração gerada!" : tipo === "contrato" ? "Contrato gerado!" : "Documento gerado!"}
-              </h2>
-              <p style={{ color: "#555555", fontSize: 14, fontFamily: "sans-serif", marginBottom: 28 }}>
-                O arquivo <strong style={{ color: GOLD }}>.docx</strong> foi baixado automaticamente.<br />
-                Abra no Word para revisar antes de enviar ao cliente.
-              </p>
-              <button onClick={resetar} style={{ padding: "12px 32px", background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, border: "none", borderRadius: 10, color: "#1a2940", fontSize: 15, fontWeight: "bold", cursor: "pointer", fontFamily: "sans-serif", letterSpacing: 1 }}>
-                + Novo Documento
-              </button>
-            </div>
-          )}
-        </div>
-
-        <p style={{ textAlign: "center", color: "#888888", fontSize: 12, marginTop: 24, fontFamily: "sans-serif" }}>
-          Os dados são processados de forma segura e não são armazenados.
-        </p>
-      </div>
-    </div>
-    </>
-  );
 }
