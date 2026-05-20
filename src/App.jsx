@@ -91,13 +91,13 @@ export default function App() {
         <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #3a4a3a 0%, #2e3d2e 100%)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px 12px" }}>
           <div style={{ background: "transparent", borderRadius: 16, padding: "40px 32px", width: "100%", maxWidth: 360 }}>
             <div style={{ textAlign: "center", marginBottom: 32 }}>
-              <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(16px, 5vw, 20px)", letterSpacing: 3, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", lineHeight: 1.3 }}>
+              <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(22px, 7vw, 38px)", letterSpacing: 6, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", lineHeight: 1.3 }}>
                 GUIMARÃES & GARCIA
               </div>
-              <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: 10, letterSpacing: 3, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", marginTop: 4, opacity: 0.85 }}>
+              <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(10px, 2vw, 13px)", letterSpacing: 6, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", marginTop: 6, opacity: 0.85 }}>
                 SOCIEDADE DE ADVOGADOS
               </div>
-              <div style={{ width: 40, height: 2, background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, margin: "20px auto 0" }} />
+              <div style={{ width: 60, height: 2, background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, margin: "24px auto 0" }} />
             </div>
             <label style={{ ...sLabel, color: "#c9a84c" }}>Senha de acesso</label>
             <input
