@@ -63,6 +63,13 @@ export default function App() {
   const [autenticado, setAutenticado] = useState(false);
   const [senha, setSenha] = useState("");
   const [erroSenha, setErroSenha] = useState(false);
+  const [tipo, setTipo] = useState(null);
+  const [texto, setTexto] = useState("");
+  const [dados, setDados] = useState(null);
+  const [fin, setFin] = useState({ numeroProcesso: "", valorTotal: "", valorEntrada: "", valorParcela: "", numParcelasRestantes: "", percentualExito: "10% (dez por cento)" });
+  const [etapa, setEtapa] = useState("tipo");
+  const [carregando, setCarregando] = useState(false);
+  const [erro, setErro] = useState("");
 
   function verificarSenha() {
     const s1 = import.meta.env.VITE_SENHA_1;
@@ -82,7 +89,7 @@ export default function App() {
         <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@700&display=swap" rel="stylesheet" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
         <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #3a4a3a 0%, #2e3d2e 100%)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px 12px" }}>
-          <div style={{ background: "#d4dbd4", borderRadius: 16, padding: "40px 32px", width: "100%", maxWidth: 360, boxShadow: "0 2px 20px rgba(0,0,0,0.25)" }}>
+          <div style={{ background: "transparent", borderRadius: 16, padding: "40px 32px", width: "100%", maxWidth: 360 }}>
             <div style={{ textAlign: "center", marginBottom: 32 }}>
               <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(16px, 5vw, 20px)", letterSpacing: 3, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", lineHeight: 1.3 }}>
                 GUIMARÃES & GARCIA
@@ -92,14 +99,14 @@ export default function App() {
               </div>
               <div style={{ width: 40, height: 2, background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, margin: "20px auto 0" }} />
             </div>
-            <label style={sLabel}>Senha de acesso</label>
+            <label style={{ ...sLabel, color: "#c9a84c" }}>Senha de acesso</label>
             <input
               type="password"
               value={senha}
               onChange={(e) => { setSenha(e.target.value); setErroSenha(false); }}
               onKeyDown={(e) => e.key === "Enter" && verificarSenha()}
               placeholder="Digite sua senha"
-              style={{ ...sInput(erroSenha), marginBottom: 4 }}
+              style={{ ...sInput(erroSenha), background: "rgba(255,255,255,0.12)", border: erroSenha ? "1px solid #c0392b" : "1px solid rgba(201,168,76,0.4)", color: "#f0e8d0", marginBottom: 4 }}
             />
             {erroSenha && <p style={{ color: "#c0392b", fontSize: 12, fontFamily: "sans-serif", margin: "6px 0 0" }}>Senha incorreta. Tente novamente.</p>}
             <button onClick={verificarSenha} style={sBtn(!senha)}>
@@ -110,14 +117,6 @@ export default function App() {
       </>
     );
   }
-
-  const [tipo, setTipo] = useState(null);
-  const [texto, setTexto] = useState("");
-  const [dados, setDados] = useState(null);
-  const [fin, setFin] = useState({ numeroProcesso: "", valorTotal: "", valorEntrada: "", valorParcela: "", numParcelasRestantes: "", percentualExito: "10% (dez por cento)" });
-  const [etapa, setEtapa] = useState("tipo");
-  const [carregando, setCarregando] = useState(false);
-  const [erro, setErro] = useState("");
 
   async function extrairDados() {
     if (!texto.trim()) return;
