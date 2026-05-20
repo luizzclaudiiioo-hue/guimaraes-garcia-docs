@@ -86,40 +86,42 @@ export default function App() {
   if (!autenticado) {
     return (
       <>
-        <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@700&display=swap" rel="stylesheet" />
+        <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-        <div style={{ minHeight: "100vh", background: "#d4dbd4", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "20px 16px" }}>
-          <div style={{ width: "100%", maxWidth: 420, textAlign: "center", margin: "0 auto" }}>
+        <div style={{ minHeight: "100vh", background: "#d4dbd4", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px 16px" }}>
+          <div style={{ textAlign: "center", width: "100%" }}>
 
-            {/* Nome do escritório */}
-            <div style={{ color: GOLD, fontSize: "clamp(16px, 2.5vw, 22px)", letterSpacing: 3, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", marginBottom: 8 }}>
-              GUIMARÃES & GARCIA
+            {/* Título + subtítulo — max 560px */}
+            <div style={{ maxWidth: 560, margin: "0 auto" }}>
+              <div style={{ color: "#9a6e1e", fontSize: 28, fontWeight: 700, letterSpacing: "0.22em", textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif" }}>
+                GUIMARÃES & GARCIA
+              </div>
+              <div style={{ color: "#1a1a1a", fontSize: 11, fontWeight: 400, letterSpacing: "0.18em", textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", marginTop: 8 }}>
+                SOCIEDADE DE ADVOGADOS
+              </div>
+              <div style={{ width: 48, height: 1, background: "#1a1a1a", margin: "16px auto 40px" }} />
             </div>
 
-            {/* Subtítulo */}
-            <div style={{ color: "#555", fontSize: 10, letterSpacing: 4, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", fontWeight: "700", marginBottom: 14 }}>
-              SOCIEDADE DE ADVOGADOS
-            </div>
-
-            {/* Linha divisória */}
-            <div style={{ width: 36, height: 1, background: "#999", margin: "0 auto 28px" }} />
-
-            {/* Formulário */}
-            <div style={{ textAlign: "center" }}>
-              <label style={{ ...sLabel, color: "#888", textAlign: "center", display: "block" }}>Senha de acesso</label>
+            {/* Campo e botão — max 340px */}
+            <div style={{ maxWidth: 340, margin: "0 auto", textAlign: "left" }}>
+              <label style={{ display: "block", fontFamily: "'DM Sans', sans-serif", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "#9a6e1e", marginBottom: 8 }}>Senha de acesso</label>
               <input
                 type="password"
                 value={senha}
                 onChange={(e) => { setSenha(e.target.value); setErroSenha(false); }}
                 onKeyDown={(e) => e.key === "Enter" && verificarSenha()}
                 placeholder="Digite sua senha"
-                style={{ ...sInput(erroSenha), background: "rgba(255,255,255,0.5)", border: erroSenha ? "1px solid #c0392b" : "1px solid rgba(0,0,0,0.15)", color: "#2a2a2a", marginBottom: 4, maxWidth: 340, display: "block", margin: "6px auto 4px" }}
+                style={{ width: "100%", boxSizing: "border-box", padding: "14px 16px", borderRadius: 8, border: erroSenha ? "1px solid #c0392b" : "1px solid rgba(130,90,20,0.3)", background: "rgba(255,255,255,0.08)", color: "#1a1a1a", fontFamily: "'DM Sans', sans-serif", fontSize: 14, outline: "none", marginBottom: 4 }}
               />
-              {erroSenha && <p style={{ color: "#c0392b", fontSize: 12, fontFamily: "sans-serif", margin: "6px 0 0" }}>Senha incorreta. Tente novamente.</p>}
-              <button onClick={verificarSenha} style={{ ...sBtn(!senha), marginTop: 12, maxWidth: 340, margin: "12px auto 0", display: "block" }}>
+              {erroSenha && <p style={{ color: "#c0392b", fontSize: 12, fontFamily: "'DM Sans', sans-serif", margin: "6px 0 0" }}>Senha incorreta. Tente novamente.</p>}
+              <button
+                onClick={verificarSenha}
+                style={{ width: "100%", marginTop: 12, padding: "14px", borderRadius: 8, border: "1px solid rgba(130,90,20,0.4)", background: "rgba(130,90,20,0.15)", color: "#9a6e1e", fontFamily: "'DM Sans', sans-serif", fontSize: 14, fontWeight: 500, cursor: "pointer", letterSpacing: "0.08em" }}
+              >
                 Entrar
               </button>
             </div>
+
           </div>
         </div>
       </>
