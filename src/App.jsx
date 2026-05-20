@@ -105,18 +105,18 @@ export default function App() {
             <div style={{ width: 40, height: 1, background: "#999", margin: "0 auto 36px" }} />
 
             {/* Formulário alinhado à esquerda */}
-            <div style={{ textAlign: "left" }}>
-              <label style={{ ...sLabel, color: "#888" }}>Senha de acesso</label>
+            <div style={{ textAlign: "center" }}>
+              <label style={{ ...sLabel, color: "#888", textAlign: "center", display: "block" }}>Senha de acesso</label>
               <input
                 type="password"
                 value={senha}
                 onChange={(e) => { setSenha(e.target.value); setErroSenha(false); }}
                 onKeyDown={(e) => e.key === "Enter" && verificarSenha()}
                 placeholder="Digite sua senha"
-                style={{ ...sInput(erroSenha), background: "rgba(255,255,255,0.5)", border: erroSenha ? "1px solid #c0392b" : "1px solid rgba(0,0,0,0.15)", color: "#2a2a2a", marginBottom: 4 }}
+                style={{ ...sInput(erroSenha), background: "rgba(255,255,255,0.5)", border: erroSenha ? "1px solid #c0392b" : "1px solid rgba(0,0,0,0.15)", color: "#2a2a2a", marginBottom: 4, maxWidth: 300, display: "block", margin: "6px auto 4px" }}
               />
               {erroSenha && <p style={{ color: "#c0392b", fontSize: 12, fontFamily: "sans-serif", margin: "6px 0 0" }}>Senha incorreta. Tente novamente.</p>}
-              <button onClick={verificarSenha} style={{ ...sBtn(!senha), marginTop: 16 }}>
+              <button onClick={verificarSenha} style={{ ...sBtn(!senha), marginTop: 12, maxWidth: 300, margin: "12px auto 0", display: "block" }}>
                 Entrar
               </button>
             </div>
