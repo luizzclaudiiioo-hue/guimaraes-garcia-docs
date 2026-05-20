@@ -204,7 +204,7 @@ export default function App() {
 
   return (
     <>
-    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #3a4a3a 0%, #2e3d2e 100%)", fontFamily: "Georgia, serif", color: "#2a2a2a", padding: "20px 12px" }}>
+    <div style={{ minHeight: "100vh", background: "#d4dbd4", fontFamily: "Georgia, serif", color: "#2a2a2a", padding: "20px 12px" }}>
       <div style={{ maxWidth: 700, margin: "0 auto" }}>
 
         <div style={{ textAlign: "center", marginBottom: 36 }}>
@@ -219,14 +219,14 @@ export default function App() {
         {etapa !== "tipo" && (
           <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 28, flexWrap: "wrap" }}>
             {steps.map((s, i) => (
-              <div key={s} style={{ padding: "5px 14px", borderRadius: 20, fontSize: 12, fontFamily: "sans-serif", background: i < etapaIdx ? "#4a7a4a" : i === etapaIdx ? GOLD : "rgba(255,255,255,0.12)", color: i <= etapaIdx ? "#fff" : "#aaaaaa", transition: "all 0.3s" }}>
+              <div key={s} style={{ padding: "5px 14px", borderRadius: 20, fontSize: 12, fontFamily: "sans-serif", background: i < etapaIdx ? "#4a7a4a" : i === etapaIdx ? GOLD : "rgba(0,0,0,0.08)", color: i <= etapaIdx ? "#fff" : "#888888", transition: "all 0.3s" }}>
                 {i < etapaIdx ? "✓ " : ""}{s}
               </div>
             ))}
           </div>
         )}
 
-        <div style={{ background: "#d4dbd4", border: "1px solid rgba(90,122,90,0.35)", borderRadius: 16, padding: "24px 20px", backdropFilter: "blur(10px)", boxShadow: "0 2px 20px rgba(0,0,0,0.25)" }}>
+        <div style={{ background: "rgba(255,255,255,0.5)", border: "1px solid rgba(0,0,0,0.1)", borderRadius: 16, padding: "24px 20px", backdropFilter: "blur(10px)", boxShadow: "0 2px 20px rgba(0,0,0,0.08)" }}>
 
           {etapa === "tipo" && (
             <>
