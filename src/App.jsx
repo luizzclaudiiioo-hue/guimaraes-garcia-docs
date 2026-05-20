@@ -60,6 +60,57 @@ function SecTitle({ children }) {
 }
 
 export default function App() {
+  const [autenticado, setAutenticado] = useState(false);
+  const [senha, setSenha] = useState("");
+  const [erroSenha, setErroSenha] = useState(false);
+
+  function verificarSenha() {
+    const s1 = import.meta.env.VITE_SENHA_1;
+    const s2 = import.meta.env.VITE_SENHA_2;
+    if (senha === s1 || senha === s2) {
+      setAutenticado(true);
+      setErroSenha(false);
+    } else {
+      setErroSenha(true);
+      setSenha("");
+    }
+  }
+
+  if (!autenticado) {
+    return (
+      <>
+        <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@700&display=swap" rel="stylesheet" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+        <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #3a4a3a 0%, #2e3d2e 100%)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px 12px" }}>
+          <div style={{ background: "#d4dbd4", borderRadius: 16, padding: "40px 32px", width: "100%", maxWidth: 360, boxShadow: "0 2px 20px rgba(0,0,0,0.25)" }}>
+            <div style={{ textAlign: "center", marginBottom: 32 }}>
+              <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(16px, 5vw, 20px)", letterSpacing: 3, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", lineHeight: 1.3 }}>
+                GUIMARÃES & GARCIA
+              </div>
+              <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: 10, letterSpacing: 3, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", marginTop: 4, opacity: 0.85 }}>
+                SOCIEDADE DE ADVOGADOS
+              </div>
+              <div style={{ width: 40, height: 2, background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, margin: "20px auto 0" }} />
+            </div>
+            <label style={sLabel}>Senha de acesso</label>
+            <input
+              type="password"
+              value={senha}
+              onChange={(e) => { setSenha(e.target.value); setErroSenha(false); }}
+              onKeyDown={(e) => e.key === "Enter" && verificarSenha()}
+              placeholder="Digite sua senha"
+              style={{ ...sInput(erroSenha), marginBottom: 4 }}
+            />
+            {erroSenha && <p style={{ color: "#c0392b", fontSize: 12, fontFamily: "sans-serif", margin: "6px 0 0" }}>Senha incorreta. Tente novamente.</p>}
+            <button onClick={verificarSenha} style={sBtn(!senha)}>
+              Entrar
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   const [tipo, setTipo] = useState(null);
   const [texto, setTexto] = useState("");
   const [dados, setDados] = useState(null);
@@ -146,8 +197,6 @@ export default function App() {
 
   return (
     <>
-    <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@700&display=swap" rel="stylesheet" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
     <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #3a4a3a 0%, #2e3d2e 100%)", fontFamily: "Georgia, serif", color: "#2a2a2a", padding: "20px 12px" }}>
       <div style={{ maxWidth: 700, margin: "0 auto" }}>
 
