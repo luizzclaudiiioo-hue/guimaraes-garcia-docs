@@ -88,17 +88,17 @@ export default function App() {
       <>
         <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@700&display=swap" rel="stylesheet" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-        <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #3a4a3a 0%, #2e3d2e 100%)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px 12px" }}>
-          <div style={{ background: "transparent", borderRadius: 16, padding: "40px 32px", width: "100%", maxWidth: 360 }}>
-            <div style={{ textAlign: "center", marginBottom: 32 }}>
-              <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(22px, 7vw, 38px)", letterSpacing: 6, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", lineHeight: 1.3 }}>
+        <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #3a4a3a 0%, #2e3d2e 100%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "20px 12px" }}>
+          <div style={{ background: "transparent", borderRadius: 16, padding: "40px 32px", width: "100%", maxWidth: 560 }}>
+        <div style={{ textAlign: "center", marginBottom: 40 }}>
+              <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(18px, 4vw, 28px)", letterSpacing: 5, textTransform: "uppercase", fontWeight: "700", fontFamily: "'Libre Baskerville', serif", lineHeight: 1.3, whiteSpace: "nowrap" }}>
                 GUIMARÃES & GARCIA
               </div>
-              <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(10px, 2vw, 13px)", letterSpacing: 6, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", marginTop: 6, opacity: 0.85 }}>
+              <div style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "clamp(9px, 1.5vw, 12px)", letterSpacing: 5, textTransform: "uppercase", fontFamily: "'Libre Baskerville', serif", marginTop: 6, opacity: 0.85 }}>
                 SOCIEDADE DE ADVOGADOS
               </div>
-              <div style={{ width: 60, height: 2, background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, margin: "24px auto 0" }} />
-            </div>
+              <div style={{ width: 60, height: 2, background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, margin: "20px auto 0" }} />
+        </div>
             <label style={{ ...sLabel, color: "#c9a84c" }}>Senha de acesso</label>
             <input
               type="password"
