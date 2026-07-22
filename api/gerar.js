@@ -87,9 +87,8 @@ module.exports = async function handler(req, res) {
 
   try {
     const { tipo, dados: d, financeiro: fin } = req.body;
-    // Usar horário de São Paulo (UTC-3) para evitar erro de data no servidor UTC
     const agora = new Date();
-    const spOffset = -3 * 60; // UTC-3 em minutos
+    const spOffset = -3 * 60;
     const spTime = new Date(agora.getTime() + (spOffset - agora.getTimezoneOffset()) * 60000);
     const meses = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
     const dia = String(spTime.getDate());
@@ -112,128 +111,64 @@ module.exports = async function handler(req, res) {
     let xml = await zip.file('word/document.xml').async('string');
 
     if (tipo === 'procuracao') {
-      const nome = d.nome.toUpperCase();
-      const mapa = [
-        { index: 0,  value: nome },
-        { index: 1,  value: '' },
-        { index: 2,  value: 'brasileiro(a)' },
-        { index: 3,  value: '' },
-        { index: 4,  value: d.estado_civil },
-        { index: 5,  value: '' },
-        { index: 6,  value: d.profissao },
-        { index: 7,  value: '' },
-        { index: 8,  value: d.rg },
-        { index: 9,  value: d.cpf },
-        // RED[10]: endereço completo (template unificado)
-        { index: 10, value: d.rua + ', ' + d.numero + ', ' + d.bairro + ', ' + d.cidade + ' - ' + d.estado + ', CEP ' + d.cep },
-        // RED[11]: email (antes era RED[21])
-        { index: 11, value: d.email },
-        // RED[12]: dia
-        { index: 12, value: dia },
-        // RED[13]: mês
-        { index: 13, value: mes },
-        // RED[14]: nome assinatura
-        { index: 14, value: nome },
-        { index: 15, value: '' },
-      ];
-      xml = substituirPorIndice(xml, mapa);
-
-      // Remove vírgulas duplicadas geradas por campos vazios no endereço
-      xml = xml.replace(/,\s*,\s*,/g, ',').replace(/,\s*,/g, ',');
-
-    } else if (tipo === 'contrato') {
+      // RED[0]=nome, [1]=nacionalidade, [2]=estado_civil, [3]=profissao,
+      // [4]=RG, [5]=orgao, [6]=CPF, [7]=endereco, [8]=email,
+      // [9]=dia, [10]=mes, [11]=ano, [12]=nome assinatura
       const nome = d.nome.toUpperCase();
       const orgao = d.orgao_expeditor || ('SSP/' + d.estado);
       const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
-      const entrada = fin.valorEntrada || '';
-      const numParc = fin.numParcelasRestantes;
+      const mapa = [
+        { index: 0,  value: nome },
+        { index: 1,  value: 'brasileiro' },
+        { index: 2,  value: d.estado_civil ? d.estado_civil.replace('(a)','').trim() : 'solteiro' },
+        { index: 3,  value: d.profissao },
+        { index: 4,  value: d.rg },
+        { index: 5,  value: orgao },
+        { index: 6,  value: d.cpf },
+        { index: 7,  value: enderecoCompleto },
+        { index: 8,  value: d.email },
+        { index: 9,  value: dia },
+        { index: 10, value: mes },
+        { index: 11, value: ano },
+        { index: 12, value: nome },
+      ];
+      xml = substituirPorIndice(xml, mapa);
+
+    } else if (tipo === 'contrato') {
+      // RED[0]=nome, [1]=nacionalidade, [2]=estado_civil, [3]=profissao,
+      // [4]=RG, [5]=orgao, [6]=CPF, [7]=endereco, [8]=email,
+      // [9]=numeroProcesso, [10]=valorTotal, [11]=valorEntrada,
+      // [12]=numParcelas, [13]=valorParcela,
+      // [14]=dia, [15]=mes, [16]=ano, [17]=nome assinatura
+      const nome = d.nome.toUpperCase();
+      const orgao = d.orgao_expeditor || ('SSP/' + d.estado);
+      const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
+      const numParc = fin.numParcelasRestantes || '';
       const numParcExtenso = numExtenso(numParc);
       const stripRS = v => (v||'').replace(/^R\$\s*/,'');
-
-      // Extensos automáticos
-      const entradaExtenso = valorExtenso(entrada);
-      const parcelaExtenso = valorExtenso(fin.valorParcela);
-
       const mapa = [
-        // Para 6
         { index: 0,  value: nome },
-        { index: 1,  value: 'brasileiro(a)' },
-        { index: 2,  value: '' },
-        { index: 3,  value: '' },
-        { index: 4,  value: d.estado_civil },
-        { index: 5,  value: d.profissao },
-        { index: 6,  value: d.rg },
-        { index: 7,  value: orgao + ',' },
-        { index: 8,  value: ' ' },
-        { index: 9,  value: d.cpf },
-        { index: 10, value: enderecoCompleto },
-        { index: 11, value: d.email },
-        // Para 13
-        { index: 12, value: fin.numeroProcesso },
-        // Para 19 — valor total
-        // RED[13]='R$' RED[14]=' ' RED[15-17]=número
-        { index: 13, value: 'R$' },
-        { index: 14, value: ' ' },
-        { index: 15, value: stripRS(fin.valorTotal) },
-        { index: 16, value: '' },
-        { index: 17, value: '' },
-        // RED[18]=' (' RED[19-23]=extenso
-        { index: 18, value: ' (' },
-        { index: 19, value: valorExtenso(fin.valorTotal) + ')' },
-        { index: 20, value: '' },
-        { index: 21, value: '' },
-        { index: 22, value: '' },
-        { index: 23, value: '' },
-        // RED[24-28]=valor entrada
-        { index: 24, value: stripRS(entrada) },
-        { index: 25, value: '' },
-        { index: 26, value: '' },
-        { index: 27, value: '' },
-        { index: 28, value: ' (' },
-        // RED[29-32]=extenso entrada — automático
-        { index: 29, value: entradaExtenso + ')' },
-        { index: 30, value: '' },
-        { index: 31, value: '' },
-        { index: 32, value: '' },
-        // RED[33]=num parcelas
-        { index: 33, value: numParc },
-        // RED[34]=' ('
-        { index: 34, value: ' (' },
-        // RED[35]=extenso num parcelas — automático
-        { index: 35, value: numParcExtenso },
-        // RED[36]=') parcelas de R$ '
-        { index: 36, value: ') parcelas de R$ ' },
-        // RED[37-38]=valor parcela
-        { index: 37, value: stripRS(fin.valorParcela) },
-        { index: 38, value: '' },
-        // RED[39-43]=extenso parcela — automático
-        { index: 39, value: ' (' },
-        { index: 40, value: parcelaExtenso + ')' },
-        { index: 41, value: '' },
-        { index: 42, value: '' },
-        { index: 43, value: '' },
-        // Para 86 — data
-        { index: 44, value: 'São Paulo' },
-        { index: 45, value: ', ' },
-        { index: 46, value: dia },
-        { index: 47, value: '' },
-        { index: 48, value: ' ' },
-        { index: 49, value: 'de ' },
-        { index: 50, value: mes + ' ' },
-        { index: 51, value: 'de ' },
-        { index: 52, value: ano.substring(0,3) },
-        { index: 53, value: ano.substring(3) },
-        { index: 54, value: '.' },
-        // Para 91 — assinatura
-        { index: 55, value: nome },
+        { index: 1,  value: 'brasileiro' },
+        { index: 2,  value: d.estado_civil ? d.estado_civil.replace('(a)','').trim() : 'solteiro' },
+        { index: 3,  value: d.profissao },
+        { index: 4,  value: d.rg },
+        { index: 5,  value: orgao },
+        { index: 6,  value: d.cpf },
+        { index: 7,  value: enderecoCompleto },
+        { index: 8,  value: d.email },
+        { index: 9,  value: fin.numeroProcesso || '' },
+        { index: 10, value: `R$ ${stripRS(fin.valorTotal)} (${valorExtenso(fin.valorTotal)})` },
+        { index: 11, value: `R$ ${stripRS(fin.valorEntrada)} (${valorExtenso(fin.valorEntrada)})` },
+        { index: 12, value: `${numParc} (${numParcExtenso})` },
+        { index: 13, value: `R$ ${stripRS(fin.valorParcela)} (${valorExtenso(fin.valorParcela)})` },
+        { index: 14, value: dia },
+        { index: 15, value: mes },
+        { index: 16, value: ano },
+        { index: 17, value: nome },
       ];
-
       xml = substituirPorIndice(xml, mapa);
 
     } else if (tipo === 'declaracao') {
-      // RED[0]=nome, [1]=nacionalidade, [2]=estado_civil, [3]=profissao,
-      // [4]=RG, [5]=CPF (SSP/SP é fixo no template), [6]=endereco, [7]=email,
-      // [8]='São Paulo, ' [9]=dia [10]=' de ' [11]=mes [12]='de ANO' [13]=ultimo_digito_ano [14]='.' [15]=nome
       const nome = d.nome.toUpperCase();
       const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
       const mapa = [
@@ -275,10 +210,6 @@ module.exports = async function handler(req, res) {
       xml = substituirPorIndice(xml, mapa);
 
     } else if (tipo === 'residencia_propria') {
-      // RED[0]=nome, [1]=nacionalidade, [2]=estado_civil, [3]=profissao,
-      // [4]=RG, [5]=SSP/orgao, [6]=CPF, [7]=endereco, [8]=email,
-      // [9]=endereco (repetido no corpo), [10]='.' (ponto final bold)
-      // Atenção: data e assinatura são FIXAS no template (não são vermelhas)
       const nome = d.nome.toUpperCase();
       const orgao = d.orgao_expeditor || ('SSP/' + d.estado);
       const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
@@ -294,39 +225,27 @@ module.exports = async function handler(req, res) {
         { index: 8,  value: d.email },
         { index: 9,  value: enderecoCompleto },
         { index: 10, value: '.' },
-        // RED[11] e [12] têm cor EE0000 (data e assinatura)
         { index: 11, value: `${d.cidade || 'São Paulo'}, ${dia} de ${mes} de ${ano}.` },
         { index: 12, value: nome },
       ];
       xml = substituirPorIndice(xml, mapa);
 
     } else if (tipo === 'amaisa') {
-      // ESTRUTURA DO TEMPLATE AMÁSIA:
-      // Quem assina ("Eu") = esposa/companheira = dados do cliente (d)
-      // Quem está preso = RED[14-23] = fin.nomePreso, fin.rgPreso, fin.cpfPreso, fin.localDetencao, fin.matricula
-      // RED[0-1]=nome esposa, [2]=RG esposa, [3]=orgao, [4]=CPF esposa,
-      // [5]=endereco, [6]=email,
-      // [7-13]=tempo de união (anos e meses),
-      // [14-15]=nome preso, [16]=RG preso, [17-19]=orgao preso (SSP/SP em 3 runs),
-      // [20]=CPF preso, [21-22]=local detenção, [23]=matrícula,
-      // [24-33]=data, [34]=vazio, [35-36]=assinatura (nome esposa)
       const nomeEsposa = d.nome.toUpperCase();
       const nomePreso = (fin.nomePreso || '').toUpperCase();
       const orgao = d.orgao_expeditor || ('SSP/' + d.estado);
       const enderecoCompleto = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
-      // Calcular tempo de união
       let anosUniao = '0', mesesUniao = '0';
       if (fin.dataUniao) {
         const partes = fin.dataUniao.split('/');
         if (partes.length === 3) {
           const inicio = new Date(Number(partes[2]), Number(partes[1]) - 1, Number(partes[0]));
-          const agora = new Date();
-          let diffMeses = (agora.getFullYear() - inicio.getFullYear()) * 12 + (agora.getMonth() - inicio.getMonth());
+          const agora2 = new Date();
+          let diffMeses = (agora2.getFullYear() - inicio.getFullYear()) * 12 + (agora2.getMonth() - inicio.getMonth());
           anosUniao = String(Math.floor(diffMeses / 12));
           mesesUniao = String(diffMeses % 12);
         }
       }
-      // Separar orgão do preso em SSP / SP
       const orgaoPreso = fin.orgaoPreso || 'SSP/SP';
       const orgaoPartes = orgaoPreso.split('/');
       const orgaoParte1 = orgaoPartes[0] || 'SSP';
@@ -348,7 +267,6 @@ module.exports = async function handler(req, res) {
         { index: 13, value: ' meses' },
         { index: 14, value: nomePreso.split(' ')[0] },
         { index: 15, value: ' ' + nomePreso.split(' ').slice(1).join(' ') },
-        // RED[16] = EE0000 espaço vazio - ignorar
         { index: 16, value: '' },
         { index: 17, value: fin.rgPreso || '' },
         { index: 18, value: orgaoParte1 },
@@ -375,8 +293,6 @@ module.exports = async function handler(req, res) {
       xml = substituirPorIndice(xml, mapa);
 
     } else if (tipo === 'proprietario') {
-      // d = dados do PROPRIETÁRIO (extraídos do WhatsApp na etapa de revisão)
-      // fin = endereço do imóvel + dados do locatário (cliente)
       const nomeLocador = d.nome.toUpperCase();
       const orgaoLocador = d.orgao_expeditor || ('SSP/' + d.estado);
       const enderecoLocador = `${d.rua}, ${d.numero}, ${d.bairro}, ${d.cidade} - ${d.estado}, CEP ${d.cep}`;
