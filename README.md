@@ -1,4 +1,4 @@
-# Guimarães & Garcia — Gerador de Documentos
+# Guimarães — Gerador de Documentos
 
 App para geração automática de Procurações e Contratos de Honorários.
 
