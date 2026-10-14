@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import Publicacoes from "./Publicacoes.jsx";
+import PreviaDocumento from "./PreviaDocumento.jsx";
 
 const EXTRACTION_PROMPT = `Você é um assistente jurídico. Extraia os dados do cliente a partir do texto abaixo, que foi enviado via WhatsApp em resposta a um script de coleta de dados para elaboração de documentos jurídicos.
 
@@ -70,6 +71,7 @@ export default function App() {
   const [etapa, setEtapa] = useState("tipo");
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
+  const [documento, setDocumento] = useState(null);
 
   // Mantém o acesso ao recarregar a página enquanto a sessão (cookie) for válida
   useEffect(() => {
@@ -164,9 +166,6 @@ export default function App() {
       }
 
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
       const nomesArquivo = {
         procuracao: "Procuracao_",
         contrato: "Contrato_",
@@ -176,9 +175,7 @@ export default function App() {
         amaisa: "Declaracao_Amaisa_",
         proprietario: "Declaracao_Proprietario_",
       };
-      a.download = `${nomesArquivo[tipo] || "Documento_"}${dados.nome.replace(/\s+/g, "_")}.docx`;
-      a.click();
-      URL.revokeObjectURL(url);
+      setDocumento({ blob, nome: `${nomesArquivo[tipo] || "Documento_"}${dados.nome.replace(/\s+/g, "_")}` });
       setEtapa("pronto");
     } catch (e) {
       setErro("Erro ao gerar documento: " + e.message);
@@ -187,7 +184,7 @@ export default function App() {
   }
 
   function resetar() {
-    setTipo(null); setTexto(""); setDados(null); setErro("");
+    setTipo(null); setTexto(""); setDados(null); setErro(""); setDocumento(null);
     setFin({ numeroProcesso: "", valorTotal: "", valorEntrada: "", valorParcela: "", numParcelasRestantes: "", percentualExito: "10% (dez por cento)" });
     setEtapa("tipo");
   }
@@ -205,7 +202,7 @@ export default function App() {
 
   const tipoTemFinanceiro = tipo === "contrato";
   const tipoTemDadosEspeciais = ["amaisa","proprietario","revogacao"].includes(tipo);
-  const steps = tipoTemFinanceiro ? ["Documento","Texto","Dados","Honorários","Pronto"] : tipoTemDadosEspeciais ? ["Documento","Texto","Dados","Extras","Pronto"] : ["Documento","Texto","Dados","Pronto"];
+  const steps = tipoTemFinanceiro ? ["Documento","Texto","Dados","Honorários","Prévia"] : tipoTemDadosEspeciais ? ["Documento","Texto","Dados","Extras","Prévia"] : ["Documento","Texto","Dados","Prévia"];
   const etapaIdx = { tipo: 0, input: 1, revisao: 2, financeiro: 3, extras: 3, gerando: tipoTemFinanceiro ? 3 : tipoTemDadosEspeciais ? 3 : 2, pronto: tipoTemFinanceiro ? 4 : tipoTemDadosEspeciais ? 4 : 3 }[etapa] ?? 0;
 
   return (
@@ -299,7 +296,7 @@ export default function App() {
                 ))}
               </div>
               <button onClick={() => tipo === "contrato" ? setEtapa("financeiro") : tipoTemDadosEspeciais ? setEtapa("extras") : gerarDoc()} style={{ ...sBtn(false), marginTop: 24 }}>
-                {tipoTemFinanceiro ? "Próximo: Honorários →" : tipoTemDadosEspeciais ? "Próximo: Dados Extras →" : tipo === "declaracao" ? "📝  Gerar Declaração (.docx)" : "📋  Gerar Procuração (.docx)"}
+                {tipoTemFinanceiro ? "Próximo: Honorários →" : tipoTemDadosEspeciais ? "Próximo: Dados Extras →" : tipo === "declaracao" ? "📝  Gerar Declaração →" : "📋  Gerar Procuração →"}
               </button>
             </>
           )}
@@ -324,7 +321,7 @@ export default function App() {
 
               </div>
               {erro && <p style={{ color: "#e05050", fontSize: 13, marginTop: 12, fontFamily: "sans-serif" }}>{erro}</p>}
-              <button onClick={gerarDoc} style={{ ...sBtn(false), marginTop: 24 }}>⚖️  Gerar Contrato (.docx)</button>
+              <button onClick={gerarDoc} style={{ ...sBtn(false), marginTop: 24 }}>⚖️  Gerar Contrato →</button>
             </>
           )}
 
@@ -363,7 +360,7 @@ export default function App() {
                 </div>
               )}
               {erro && <p style={{ color: "#e05050", fontSize: 13, marginTop: 12, fontFamily: "sans-serif" }}>{erro}</p>}
-              <button onClick={gerarDoc} style={{ ...sBtn(false), marginTop: 24 }}>📄  Gerar Documento (.docx)</button>
+              <button onClick={gerarDoc} style={{ ...sBtn(false), marginTop: 24 }}>📄  Gerar Documento →</button>
             </>
           )}
 
@@ -374,20 +371,14 @@ export default function App() {
             </div>
           )}
 
-          {etapa === "pronto" && (
-            <div style={{ textAlign: "center", padding: "20px 0" }}>
-              <div style={{ fontSize: 56, marginBottom: 16 }}>✅</div>
-              <h2 style={{ color: GOLD_L, fontWeight: "normal", marginBottom: 8 }}>
-                {tipo === "procuracao" ? "Procuração gerada!" : tipo === "contrato" ? "Contrato gerado!" : "Documento gerado!"}
-              </h2>
-              <p style={{ color: "#555555", fontSize: 14, fontFamily: "sans-serif", marginBottom: 28 }}>
-                O arquivo <strong style={{ color: GOLD }}>.docx</strong> foi baixado automaticamente.<br />
-                Abra no Word para revisar antes de enviar ao cliente.
-              </p>
-              <button onClick={resetar} style={{ padding: "12px 32px", background: `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, border: "none", borderRadius: 10, color: "#1a2940", fontSize: 15, fontWeight: "bold", cursor: "pointer", fontFamily: "sans-serif", letterSpacing: 1 }}>
-                + Novo Documento
-              </button>
-            </div>
+          {etapa === "pronto" && documento && (
+            <PreviaDocumento
+              blob={documento.blob}
+              nomeArquivo={documento.nome}
+              titulo={tipo === "procuracao" ? "Procuração" : tipo === "contrato" ? "Contrato de Honorários" : "Documento"}
+              onVoltar={() => setEtapa(tipoTemFinanceiro ? "financeiro" : tipoTemDadosEspeciais ? "extras" : "revisao")}
+              onNovo={resetar}
+            />
           )}
         </div>
         </>}
