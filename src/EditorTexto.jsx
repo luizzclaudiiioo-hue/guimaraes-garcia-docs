@@ -1,5 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import fonte400 from "@fontsource/archivo-narrow/files/archivo-narrow-latin-400-normal.woff2?url";
+import fonte400i from "@fontsource/archivo-narrow/files/archivo-narrow-latin-400-italic.woff2?url";
+import fonte700 from "@fontsource/archivo-narrow/files/archivo-narrow-latin-700-normal.woff2?url";
+import fonte700i from "@fontsource/archivo-narrow/files/archivo-narrow-latin-700-italic.woff2?url";
 import { CM, PAGINA_PADRAO, dimensoes, docxParaHtml, htmlParaDocx } from "./docxConversao.js";
 import * as T from "./textoTabelas.js";
 import { ESTILOS_PADRAO, cssEstilos, estilosDe } from "./textoEstilos.js";
@@ -35,8 +39,14 @@ function sanitizar(html) {
   return corpo.innerHTML;
 }
 
-const FONTES = ["Times New Roman", "Arial", "Calibri", "Georgia", "Verdana", "Courier New"];
-const TAMANHOS = [["1", "8"], ["2", "10"], ["3", "12"], ["4", "14"], ["5", "18"], ["6", "24"], ["7", "36"]];
+const FONTES = ["Times New Roman", "Arial", "Arial Narrow", "Calibri", "Georgia", "Verdana", "Courier New"];
+const TAMANHOS = [8, 9, 10, 10.5, 11, 12, 13, 14, 16, 18, 20, 24, 28, 36];
+
+// Arial Narrow (e a Arial Nova Cond dos modelos) nem sempre estão instaladas: na tela,
+// usa a do computador se houver e, se não, a Archivo Narrow que vai junto com o app.
+// No .docx o nome gravado continua sendo o original, e o Word usa a fonte verdadeira.
+const CSS_FONTES = ["Arial Narrow", "Arial Nova Cond"].flatMap((nome) => [[fonte400, 400, "normal"], [fonte400i, 400, "italic"], [fonte700, 700, "normal"], [fonte700i, 700, "italic"]]
+  .map(([url, peso, estilo]) => `@font-face { font-family: "${nome}"; font-weight: ${peso}; font-style: ${estilo}; src: local("${nome}"), local("Arial Narrow"), url("${url}") format("woff2"); }`)).join("\n");
 
 const sBarra = { display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center", padding: 8, background: "#f4f1ea", border: "1px solid rgba(0,0,0,0.12)", borderRadius: "10px 10px 0 0", position: "sticky", top: 0, zIndex: 5 };
 const sBotao = (ativo) => ({ minWidth: 32, height: 30, padding: "0 8px", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6, background: ativo ? "rgba(154,110,30,0.2)" : "#fff", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif", color: "#2a2a2a", whiteSpace: "nowrap" });
@@ -236,6 +246,29 @@ export default function EditorTexto() {
   function cmd(c, v = null) {
     editor.current.focus();
     document.execCommand(c, false, v);
+    salvarHtml();
+  }
+
+  // Tamanho em pontos (o comando do navegador só conhece 7 tamanhos fixos): marca a seleção
+  // com o tamanho 7 e troca essas marcas por <span style="font-size: Npt">.
+  function aplicarTamanho(pt) {
+    editor.current.focus();
+    const s = document.getSelection();
+    if (!s.rangeCount || s.isCollapsed) return setMsg("Selecione o texto para mudar o tamanho.");
+    document.execCommand("styleWithCSS", false, false);
+    document.execCommand("fontSize", false, "7");
+    editor.current.querySelectorAll('font[size="7"]').forEach((f) => {
+      const sp = document.createElement("span");
+      sp.style.fontSize = `${pt}pt`;
+      if (f.getAttribute("face")) sp.style.fontFamily = f.getAttribute("face");
+      if (f.getAttribute("color")) sp.style.color = f.getAttribute("color");
+      sp.append(...f.childNodes);
+      f.replaceWith(sp);
+      // Tamanhos antigos dentro do trecho deixam de valer
+      sp.querySelectorAll("[style*='font-size']").forEach((x) => { x.style.fontSize = ""; });
+      sp.querySelectorAll("font[size]").forEach((x) => x.removeAttribute("size"));
+    });
+    setMsg("");
     salvarHtml();
   }
 
@@ -767,6 +800,7 @@ export default function EditorTexto() {
     w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(atual.nome)}</title>
       <style>
         @page { size: ${largCm}cm ${altCm}cm; margin: ${m.sup}cm ${m.dir}cm ${m.inf}cm ${m.esq}cm; ${numero} }
+        ${CSS_FONTES.replace(/url\("\//g, `url("${location.origin}/`)}
         body { margin: 0; } ${CSS_PAGINA} ${cssDoc}
         .sumario { border: 0; padding: 0; } .ed-notas { margin-top: 18pt; border-top: 1px solid #000; padding-top: 4pt; }
         table.moldura { width: 100%; border-collapse: collapse; } table.moldura > * > tr > td { padding: 0; }
@@ -890,7 +924,7 @@ export default function EditorTexto() {
 
   return (
     <div style={{ fontFamily: "sans-serif" }} onKeyDown={teclas}>
-      <style>{CSS_PAGINA + cssDoc + CSS_TELA + cssRevisao}</style>
+      <style>{CSS_FONTES + CSS_PAGINA + cssDoc + CSS_TELA + cssRevisao}</style>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
         <select value={atualId} onChange={(e) => trocar(e.target.value)} style={{ ...sSelect, maxWidth: 220 }} title="Documentos salvos neste navegador">
           {docs.map((x) => <option key={x.id} value={x.id}>{x.nome || "(sem nome)"}</option>)}
@@ -928,9 +962,9 @@ export default function EditorTexto() {
           <option value="" disabled>Fonte</option>
           {FONTES.map((f) => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
         </select>
-        <select style={sSelect} defaultValue="" onChange={(e) => { cmd("fontSize", e.target.value); e.target.value = ""; }} title="Tamanho">
+        <select style={sSelect} defaultValue="" onChange={(e) => { aplicarTamanho(e.target.value); e.target.value = ""; }} title="Tamanho da fonte (pt)">
           <option value="" disabled>Tam.</option>
-          {TAMANHOS.map(([v, pt]) => <option key={v} value={v}>{pt}</option>)}
+          {TAMANHOS.map((pt) => <option key={pt} value={pt}>{String(pt).replace(".", ",")}</option>)}
         </select>
         <span style={sSep} />
         <button style={{ ...sBotao(estado.bold), fontWeight: "bold" }} onClick={() => cmd("bold")} title="Negrito (Ctrl+B)">N</button>
@@ -1211,7 +1245,7 @@ function NotaTexto({ id, html, docId, mudar }) {
     onInput={() => mudar(id, ref.current.innerHTML)} style={{ flex: 1, outline: "none", minHeight: "1.2em" }} />;
 }
 
-const FONTES_ESTILO = ["Times New Roman", "Arial", "Calibri", "Georgia", "Verdana", "Courier New", "Arial Nova Cond"];
+const FONTES_ESTILO = ["Times New Roman", "Arial", "Arial Narrow", "Calibri", "Georgia", "Verdana", "Courier New", "Arial Nova Cond"];
 function PainelEstilos({ estilos, mudar }) {
   const campo = { height: 26, border: "1px solid rgba(0,0,0,0.15)", borderRadius: 5, fontSize: 12, padding: "0 4px", background: "#fff" };
   const set = (k, prop, v) => mudar({ ...estilos, [k]: { ...estilos[k], [prop]: v } });
