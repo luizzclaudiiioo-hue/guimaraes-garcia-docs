@@ -1,4 +1,7 @@
 {
+  "functions": {
+    "api/gerar.js": { "includeFiles": "templates/**" }
+  },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" }
   ]
