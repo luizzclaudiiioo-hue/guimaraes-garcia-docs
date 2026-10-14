@@ -1,3 +1,5 @@
+import { exigirSessao } from './_auth.js';
+
 // Consulta as publicações (intimações) do DJEN — Comunica PJe/CNJ — pela OAB/UF.
 const DJEN_URL = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
 const ITENS_POR_PAGINA = 100;
@@ -7,6 +9,7 @@ const dataValida = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  if (!exigirSessao(req, res)) return;
 
   const oab = String(req.query.oab || '').replace(/\D/g, '');
   const uf = String(req.query.uf || '').toUpperCase();

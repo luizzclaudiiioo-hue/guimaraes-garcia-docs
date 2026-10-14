@@ -41,7 +41,7 @@ function textoPlano(html) {
   return (doc.body.textContent || "").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-export default function Publicacoes({ model }) {
+export default function Publicacoes() {
   const [oab, setOab] = useState(() => ler("pub_oab", ""));
   const [uf, setUf] = useState(() => ler("pub_uf", "SP"));
   const [inicio, setInicio] = useState(diasAtras(7));
@@ -86,7 +86,7 @@ export default function Publicacoes({ model }) {
       const res = await fetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model, max_tokens: 500, messages: [{ role: "user", content: RESUMO_PROMPT + "\n\n" + p.texto }] }),
+        body: JSON.stringify({ max_tokens: 500, messages: [{ role: "user", content: RESUMO_PROMPT + "\n\n" + p.texto }] }),
       });
       const data = await res.json();
       const texto = data.content?.[0]?.text;

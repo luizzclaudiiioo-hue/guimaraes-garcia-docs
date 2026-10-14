@@ -1,7 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Publicacoes from "./Publicacoes.jsx";
-
-const ANTHROPIC_MODEL = "claude-sonnet-4-5";
 
 const EXTRACTION_PROMPT = `Você é um assistente jurídico. Extraia os dados do cliente a partir do texto abaixo, que foi enviado via WhatsApp em resposta a um script de coleta de dados para elaboração de documentos jurídicos.
 
@@ -73,13 +71,22 @@ export default function App() {
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
 
-  function verificarSenha() {
-    const s1 = import.meta.env.VITE_SENHA_1;
-    const s2 = import.meta.env.VITE_SENHA_2;
-    if (senha === s1 || senha === s2) {
+  // Mantém o acesso ao recarregar a página enquanto a sessão (cookie) for válida
+  useEffect(() => {
+    fetch("/api/login").then((r) => r.ok && setAutenticado(true)).catch(() => {});
+  }, []);
+
+  async function verificarSenha() {
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ senha }),
+      });
+      if (!res.ok) throw new Error();
       setAutenticado(true);
       setErroSenha(false);
-    } else {
+    } catch {
       setErroSenha(true);
       setSenha("");
     }
@@ -132,7 +139,7 @@ export default function App() {
       const res = await fetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: ANTHROPIC_MODEL, max_tokens: 1000, messages: [{ role: "user", content: EXTRACTION_PROMPT + "\n\n" + texto }] }),
+        body: JSON.stringify({ max_tokens: 1000, messages: [{ role: "user", content: EXTRACTION_PROMPT + "\n\n" + texto }] }),
       });
       const data = await res.json();
       const parsed = JSON.parse((data.content?.[0]?.text || "{}").replace(/```json|```/g, "").trim());
@@ -221,7 +228,7 @@ export default function App() {
 
         {aba === "publicacoes" && (
           <div style={{ background: "rgba(255,255,255,0.5)", border: "1px solid rgba(0,0,0,0.1)", borderRadius: 16, padding: "24px 20px", backdropFilter: "blur(10px)", boxShadow: "0 2px 20px rgba(0,0,0,0.08)" }}>
-            <Publicacoes model={ANTHROPIC_MODEL} />
+            <Publicacoes />
           </div>
         )}
 
