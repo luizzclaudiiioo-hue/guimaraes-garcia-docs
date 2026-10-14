@@ -24,3 +24,20 @@ npm run dev
 ```
 
 Acesse http://localhost:5173
+
+## Texto e Planilha
+
+Além do gerador de documentos e das publicações, o app tem duas abas de escritório:
+
+- **📝 Texto** (estilo Word): página A4 com negrito, itálico, sublinhado, fontes,
+  tamanhos, cores, títulos, listas, alinhamento, tabelas, links e quebra de página.
+  Abre `.docx`, `.txt` e `.html`; salva em Word (`.docx`) e imprime ou gera PDF.
+- **📊 Planilha** (estilo Excel): várias planilhas por arquivo, fórmulas em português
+  (`=SOMA(A1:A10)`, `=SE(...)`, `=PROCV(...)`, `=SOMASE(...)`, `=HOJE()` e outras,
+  com `;` entre argumentos), formatos de número (R$, %, data), cores, inserir e
+  excluir linhas/colunas, copiar e colar (inclusive do Excel), desfazer e AutoSoma.
+  Abre e salva `.xlsx` e `.csv`.
+
+Os arquivos ficam salvos automaticamente no navegador de quem usa (não vão para
+o servidor). Para guardar ou compartilhar, salve em `.docx` ou `.xlsx`.
+O motor de fórmulas fica em `src/formulas.js`.
