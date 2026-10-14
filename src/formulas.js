@@ -168,6 +168,11 @@ const PT_EN = {
   "MAIÚSCULA": "UPPER", "MINÚSCULA": "LOWER", "ARRUMAR": "TRIM", "NÚM.CARACT": "LEN", "ESQUERDA": "LEFT",
   "DIREITA": "RIGHT", "EXT.TEXTO": "MID", "SOMASE": "SUMIF", "CONT.SE": "COUNTIF", "MÉDIASE": "AVERAGEIF",
   "PROCV": "VLOOKUP", "PROCH": "HLOOKUP", "ÍNDICE": "INDEX", "CORRESP": "MATCH", "SOMARPRODUTO": "SUMPRODUCT",
+  "PROCX": "XLOOKUP", "SOMASES": "SUMIFS", "CONT.SES": "COUNTIFS", "MÉDIASES": "AVERAGEIFS",
+  "DIATRABALHOTOTAL": "NETWORKDAYS", "DIATRABALHO": "WORKDAY", "DATADIF": "DATEDIF", "DIAS": "DAYS",
+  "DIA.DA.SEMANA": "WEEKDAY", "FIMMÊS": "EOMONTH", "DATAM": "EDATE", "TEXTO": "TEXT", "VALOR": "VALUE",
+  "SUBSTITUIR": "SUBSTITUTE", "MAIOR": "LARGE", "MENOR": "SMALL",
+  "VP": "PV", "VF": "FV", "PGTO": "PMT", "TAXA": "RATE", "NPER": "NPER",
   "MED": "MEDIAN", "ÉCÉL.VAZIA": "ISBLANK", "ÉNÚM": "ISNUMBER", "ÉTEXTO": "ISTEXT", "ÉERRO": "ISERROR", "PI": "PI",
 };
 const semAcento = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "");
@@ -180,7 +185,12 @@ for (const [pt, en] of Object.entries(PT_EN)) {
   if (!PARA_PT[en]) PARA_PT[en] = pt;
 }
 PARA_EN["MEDIA"] = "AVERAGE";
-export const nomeIngles = (nome) => PARA_EN[nome] || PARA_EN[semAcento(nome)] || nome;
+// Funções novas do Excel são gravadas no .xlsx com o prefixo "_xlfn.".
+const XLFN = new Set(["XLOOKUP", "CONCAT", "DAYS"]);
+export function nomeIngles(nome) {
+  nome = nome.replace(/^_XL(FN|WS)\./i, "");
+  return PARA_EN[nome] || PARA_EN[semAcento(nome)] || nome;
+}
 export const nomesFuncoes = () => Object.keys(PT_EN);
 
 // ---------- Reescrita (pt ↔ en, deslocamento de referências) ----------
@@ -197,7 +207,7 @@ function emitir(tokens, pt) {
     if (t.t === "num") s += pt ? String(t.v).replace(".", ",") : String(t.v);
     else if (t.t === "str") s += '"' + t.v.replace(/"/g, '""') + '"';
     else if (t.t === "ref") s += textoRef(t);
-    else if (t.t === "func") s += pt ? (PARA_PT[nomeIngles(t.v)] || t.v) : nomeIngles(t.v);
+    else if (t.t === "func") s += pt ? (PARA_PT[nomeIngles(t.v)] || nomeIngles(t.v)) : (XLFN.has(nomeIngles(t.v)) ? "_xlfn." : "") + nomeIngles(t.v);
     else if (t.t === "bool") s += pt ? (t.v ? "VERDADEIRO" : "FALSO") : (t.v ? "TRUE" : "FALSE");
     else if (t.t === "sep") s += pt ? ";" : ",";
     else if (t.t === "erro") s += t.v;
@@ -470,6 +480,143 @@ const FUNCOES = {
     const v = tab.linhas[li - 1]?.[ci - 1];
     return v === undefined ? E.ref : v;
   },
+  SUMIFS: ([somar, ...pares]) => {
+    if (!(somar instanceof Intervalo)) return E.valor;
+    const ok = linhasQueAtendem(pares);
+    if (ehErro(ok)) return ok;
+    const v = somar.valores;
+    return ok.reduce((s, i) => s + (typeof v[i] === "number" ? v[i] : 0), 0);
+  },
+  COUNTIFS: (pares) => { const ok = linhasQueAtendem(pares); return ehErro(ok) ? ok : ok.length; },
+  AVERAGEIFS: ([med, ...pares]) => {
+    if (!(med instanceof Intervalo)) return E.valor;
+    const ok = linhasQueAtendem(pares);
+    if (ehErro(ok)) return ok;
+    const n = ok.map((i) => med.valores[i]).filter((x) => typeof x === "number");
+    return n.length ? n.reduce((x, y) => x + y, 0) / n.length : E.div0;
+  },
+  XLOOKUP: ([proc, busca, ret, seNao, modo]) => {
+    if (!(busca instanceof Intervalo) || !(ret instanceof Intervalo)) return E.valor;
+    const vb = busca.valores;
+    const m = modo === undefined ? 0 : paraNumero(modo);
+    let i = vb.findIndex((v) => comparar(v, proc) === 0);
+    if (i < 0 && (m === -1 || m === 1)) {
+      let melhor = -1;
+      vb.forEach((v, j) => {
+        if (v === null || typeof v !== typeof proc) return;
+        const k = comparar(v, proc);
+        if ((m === -1 && k < 0 && (melhor < 0 || comparar(v, vb[melhor]) > 0)) || (m === 1 && k > 0 && (melhor < 0 || comparar(v, vb[melhor]) < 0))) melhor = j;
+      });
+      i = melhor;
+    }
+    if (i < 0) return seNao === undefined ? E.nd : seNao instanceof Intervalo ? E.valor : seNao;
+    // Busca em coluna devolve da mesma linha; busca em linha devolve da mesma coluna.
+    const vertical = busca.linhas.length > 1 || busca.linhas[0].length === 1;
+    const v = vertical ? ret.linhas[i]?.[0] : ret.linhas[0]?.[i];
+    return v === undefined ? E.ref : v;
+  },
+  NETWORKDAYS: ([ini, fim, fer]) => {
+    const n = nums([ini, fim], [undefined, undefined]);
+    if (ehErro(n)) return n;
+    let [a, b] = n.map(Math.floor);
+    const sinal = a <= b ? 1 : -1;
+    if (sinal < 0) [a, b] = [b, a];
+    const f = feriados(fer);
+    let total = 0;
+    for (let d = a; d <= b; d++) if (diaUtil(d, f)) total++;
+    return sinal * total;
+  },
+  WORKDAY: ([ini, dias, fer]) => {
+    const n = nums([ini, dias], [undefined, undefined]);
+    if (ehErro(n)) return n;
+    let d = Math.floor(n[0]);
+    let resto = Math.trunc(n[1]);
+    const passo = Math.sign(resto);
+    const f = feriados(fer);
+    while (resto !== 0) { d += passo; if (diaUtil(d, f)) resto -= passo; }
+    return d;
+  },
+  DATEDIF: ([ini, fim, un]) => {
+    const n = nums([ini, fim], [undefined, undefined]);
+    if (ehErro(n)) return n;
+    const [a, b] = n.map(Math.floor);
+    if (a > b) return E.num;
+    const x = serieParaData(a), y = serieParaData(b);
+    let meses = (y.a - x.a) * 12 + (y.m - x.m) - (y.d < x.d ? 1 : 0);
+    switch (paraTexto(un).toUpperCase()) {
+      case "D": return b - a;
+      case "M": return meses;
+      case "Y": return Math.floor(meses / 12);
+      case "YM": return meses % 12;
+      case "MD": return y.d >= x.d ? y.d - x.d : b - somarMeses(a, meses, false);
+      case "YD": { const aniv = somarMeses(a, Math.floor(meses / 12) * 12, false); return b - aniv; }
+      default: return E.num;
+    }
+  },
+  DAYS: ([fim, ini]) => { const n = nums([fim, ini], [undefined, undefined]); return ehErro(n) ? n : Math.floor(n[0]) - Math.floor(n[1]); },
+  WEEKDAY: ([d, tipo]) => {
+    const n = nums([d, tipo], [undefined, 1]);
+    if (ehErro(n)) return n;
+    const w = diaSemana(n[0]);
+    return n[1] === 2 ? (w + 6) % 7 + 1 : n[1] === 3 ? (w + 6) % 7 : w + 1;
+  },
+  EOMONTH: ([d, m]) => { const n = nums([d, m], [undefined, 0]); return ehErro(n) ? n : somarMeses(Math.floor(n[0]), Math.trunc(n[1]), true); },
+  EDATE: ([d, m]) => { const n = nums([d, m], [undefined, 0]); return ehErro(n) ? n : somarMeses(Math.floor(n[0]), Math.trunc(n[1]), false); },
+  TEXT: ([v, f]) => formatarTexto(v, f),
+  VALUE: ([v]) => paraNumero(v),
+  SUBSTITUTE: ([t, velho, novo, qual]) => {
+    t = paraTexto(t); velho = paraTexto(velho); novo = paraTexto(novo);
+    if (!velho) return t;
+    if (qual === undefined) return t.split(velho).join(novo);
+    const k = paraNumero(qual);
+    let pos = -1;
+    for (let i = 0; i < k; i++) { pos = t.indexOf(velho, pos + 1); if (pos < 0) return t; }
+    return t.slice(0, pos) + novo + t.slice(pos + velho.length);
+  },
+  LARGE: ([intv, k]) => { const n = numeros([intv]); if (ehErro(n)) return n; n.sort((a, b) => b - a); const v = n[paraNumero(k) - 1]; return v === undefined ? E.num : v; },
+  SMALL: ([intv, k]) => { const n = numeros([intv]); if (ehErro(n)) return n; n.sort((a, b) => a - b); const v = n[paraNumero(k) - 1]; return v === undefined ? E.num : v; },
+  PV: (a) => {
+    const n = nums(a, [undefined, undefined, undefined, 0, 0]);
+    if (ehErro(n)) return n;
+    const [r, np, pgto, fv, t] = n;
+    if (r === 0) return -(pgto * np + fv);
+    const f = (1 + r) ** np;
+    return -(pgto * (1 + r * t) * (f - 1) / r + fv) / f;
+  },
+  FV: (a) => { const n = nums(a, [undefined, undefined, undefined, 0, 0]); return ehErro(n) ? n : vf(n[0], n[1], n[2], n[3], n[4]); },
+  PMT: (a) => {
+    const n = nums(a, [undefined, undefined, undefined, 0, 0]);
+    if (ehErro(n)) return n;
+    const [r, np, pv, fv, t] = n;
+    if (np === 0) return E.num;
+    if (r === 0) return -(pv + fv) / np;
+    const f = (1 + r) ** np;
+    return -(pv * f + fv) * r / ((1 + r * t) * (f - 1));
+  },
+  NPER: (a) => {
+    const n = nums(a, [undefined, undefined, undefined, 0, 0]);
+    if (ehErro(n)) return n;
+    const [r, pgto, pv, fv, t] = n;
+    if (r === 0) return pgto === 0 ? E.num : -(pv + fv) / pgto;
+    const x = (pgto * (1 + r * t) - fv * r) / (pgto * (1 + r * t) + pv * r);
+    return x <= 0 ? E.num : Math.log(x) / Math.log(1 + r);
+  },
+  RATE: (a) => {
+    const n = nums(a, [undefined, undefined, undefined, 0, 0, 0.1]);
+    if (ehErro(n)) return n;
+    const [np, pgto, pv, fv, t, chute] = n;
+    const f = (r) => (Math.abs(r) < 1e-12 ? pv + pgto * np + fv : -vf(r, np, pgto, pv, t) + fv);
+    let r = chute;
+    for (let i = 0; i < 100; i++) {
+      const y = f(r);
+      const d = (f(r + 1e-7) - y) / 1e-7;
+      if (!Number.isFinite(d) || d === 0) break;
+      const novo = r - y / d;
+      if (Math.abs(novo - r) < 1e-12) return novo;
+      r = novo;
+    }
+    return Math.abs(f(r)) < 1e-6 ? r : E.num;
+  },
   MATCH: ([proc, intv, tipo]) => {
     if (!(intv instanceof Intervalo)) return E.nd;
     const vs = intv.valores;
@@ -479,6 +626,85 @@ const FUNCOES = {
     vs.forEach((v, i) => { if (v !== null && (t > 0 ? comparar(v, proc) <= 0 : comparar(v, proc) >= 0)) achou = i; });
     return achou < 0 ? E.nd : achou + 1;
   },
+};
+
+// ----- Condições múltiplas (SOMASES, CONT.SES, MÉDIASES) -----
+function linhasQueAtendem(pares) {
+  if (pares.length % 2) return E.valor;
+  const listas = [];
+  for (let i = 0; i < pares.length; i += 2) {
+    if (!(pares[i] instanceof Intervalo)) return E.valor;
+    listas.push([pares[i].valores, criterio(pares[i + 1])]);
+  }
+  const n = listas[0][0].length;
+  if (listas.some(([v]) => v.length !== n)) return E.valor;
+  const ok = [];
+  for (let i = 0; i < n; i++) if (listas.every(([v, f]) => f(v[i]))) ok.push(i);
+  return ok;
+}
+
+// ----- Datas -----
+const diaSemana = (n) => new Date(BASE + Math.round(n) * 86400000).getUTCDay(); // 0 = domingo
+function feriados(arg) {
+  if (arg === undefined) return new Set();
+  const lista = arg instanceof Intervalo ? arg.valores : [arg];
+  return new Set(lista.filter((v) => typeof v === "number").map(Math.floor));
+}
+const diaUtil = (n, fer) => { const d = diaSemana(n); return d !== 0 && d !== 6 && !fer.has(n); };
+function somarMeses(serie, meses, fimDoMes) {
+  const { a, m, d } = serieParaData(serie);
+  const ultimo = new Date(Date.UTC(a, m - 1 + meses + 1, 0)).getUTCDate();
+  return dataParaSerie(a, m + meses, fimDoMes ? ultimo : Math.min(d, ultimo));
+}
+
+// ----- TEXTO(valor; "formato") com os códigos do Excel em português -----
+const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const SEMANA = ["domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"];
+function formatarTexto(v, fmt) {
+  fmt = paraTexto(fmt);
+  if (typeof v !== "number") { const n = paraNumero(v); if (ehErro(n)) return paraTexto(v); v = n; }
+  if (/[dmay]/i.test(fmt.replace(/"[^"]*"/g, "")) && !/[0#]/.test(fmt)) {
+    const { a, m, d } = serieParaData(Math.floor(v));
+    const p2 = (x) => String(x).padStart(2, "0");
+    return fmt.replace(/"([^"]*)"|dddd|ddd|dd|d|mmmmm|mmmm|mmm|mm|m|aaaa|yyyy|aa|yy/gi, (t, lit) => {
+      if (lit !== undefined) return lit;
+      switch (t.toLowerCase()) {
+        case "dddd": return SEMANA[diaSemana(v)];
+        case "ddd": return SEMANA[diaSemana(v)].slice(0, 3);
+        case "dd": return p2(d);
+        case "d": return String(d);
+        case "mmmmm": return MESES[m - 1][0];
+        case "mmmm": return MESES[m - 1];
+        case "mmm": return MESES[m - 1].slice(0, 3);
+        case "mm": return p2(m);
+        case "m": return String(m);
+        case "aaaa": case "yyyy": return String(a);
+        default: return String(a).slice(-2);
+      }
+    });
+  }
+  const m = /[#0.,]*[#0][#0.,]*/.exec(fmt);
+  if (!m) return fmt;
+  const [inteira, dec = ""] = m[0].split(",");
+  if (fmt.includes("%")) v *= 100;
+  const casas = (dec.match(/[0#]/g) || []).length;
+  const numero = new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: (dec.match(/0/g) || []).length, maximumFractionDigits: casas,
+    useGrouping: inteira.includes("."), minimumIntegerDigits: Math.max(1, (inteira.match(/0/g) || []).length),
+  }).format(v);
+  return (fmt.slice(0, m.index) + numero + fmt.slice(m.index + m[0].length)).replace(/"/g, "");
+}
+
+// ----- Financeiras (mesma convenção de sinais do Excel) -----
+function vf(r, n, pgto, vp, t) {
+  if (r === 0) return -(vp + pgto * n);
+  const f = (1 + r) ** n;
+  return -(vp * f + pgto * (1 + r * t) * (f - 1) / r);
+}
+const nums = (args, padroes) => {
+  const out = padroes.map((p, i) => (args[i] === undefined ? p : paraNumero(args[i])));
+  const e = out.find((x) => ehErro(x) || x === undefined);
+  return e === undefined ? out : e || E.valor;
 };
 
 function procurar(proc, tab, idx, aprox, horizontal) {
