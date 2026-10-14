@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CM, PAGINA_PADRAO, dimensoes, docxParaHtml, htmlParaDocx } from "./docxConversao.js";
+import { TIPOS, arquivoLembrado, baixar, escolherArquivo, gravarNoArquivo, lembrarArquivo, recursosNaoSuportados, salvarComo, suportaArquivoLocal } from "./arquivoLocal.js";
 
 const GOLD = "#9a6e1e";
 const CHAVE = "editorTexto.docs";
@@ -72,6 +73,8 @@ export default function EditorTexto() {
   const arquivo = useRef(null);
   const arquivoImg = useRef(null);
   const campoBusca = useRef(null);
+  const arquivos = useRef(new Map()); // id do documento → arquivo no computador
+  const [, setVersaoArquivos] = useState(0);
   const atual = docs.find((x) => x.id === atualId) || docs[0];
   const pagina = atual.pagina || PAGINA_PADRAO;
   const [largCm, altCm] = dimensoes(pagina);
@@ -82,9 +85,28 @@ export default function EditorTexto() {
     if (!gravar(CHAVE, docs)) setMsg("Atenção: documento grande demais para ficar salvo no navegador (imagens ocupam muito espaço). Salve em Word (.docx) para não perder.");
   }, [docs]);
 
+  // Documento ligado a um arquivo do computador: recupera o vínculo depois de recarregar a página.
+  useEffect(() => {
+    if (!atual.arquivo || arquivos.current.has(atual.id)) return;
+    arquivoLembrado(atual.id).then((h) => { if (h) { arquivos.current.set(atual.id, h); setVersaoArquivos((x) => x + 1); } });
+  }, [atual.id, atual.arquivo]);
+
+  // Avisa antes de fechar a aba com alterações não salvas no arquivo.
+  useEffect(() => {
+    const aviso = (e) => {
+      if (docs.some((x) => x.arquivo && x.alterado)) { e.preventDefault(); e.returnValue = ""; }
+    };
+    window.addEventListener("beforeunload", aviso);
+    return () => window.removeEventListener("beforeunload", aviso);
+  }, [docs]);
+
   // Troca de documento: carrega o conteúdo (fora do React para não perder o cursor).
   useEffect(() => {
-    if (editor.current) editor.current.innerHTML = atual.html;
+    if (editor.current) {
+      editor.current.innerHTML = atual.html;
+      // O navegador normaliza o HTML; guardar a versão normalizada evita "alteração" falsa.
+      if (editor.current.innerHTML !== atual.html) mudarDoc({ html: editor.current.innerHTML }, false);
+    }
     if (cab.current) cab.current.innerHTML = atual.cabecalho || "";
     if (rod.current) rod.current.innerHTML = atual.rodape || "";
     document.execCommand("styleWithCSS", false, false);
@@ -151,8 +173,8 @@ export default function EditorTexto() {
 
   // ----- alterações -----
 
-  function mudarDoc(patch) {
-    setDocs((ds) => ds.map((x) => (x.id === atualId ? { ...x, ...patch, atualizado: Date.now() } : x)));
+  function mudarDoc(patch, marcarAlterado = true) {
+    setDocs((ds) => ds.map((x) => (x.id === atualId ? { ...x, ...patch, atualizado: Date.now(), ...(marcarAlterado ? { alterado: true } : {}) } : x)));
   }
 
   function salvarHtml() {
@@ -194,15 +216,18 @@ export default function EditorTexto() {
     const n = novoDoc(nome, extra);
     setDocs((ds) => [n, ...ds]);
     setAtualId(n.id);
+    return n;
   }
 
   function trocar(id) {
-    salvarHtml();
+    if (editor.current.innerHTML !== atual.html) salvarHtml();
     setAtualId(id);
   }
 
   function excluir() {
     if (!confirm(`Excluir "${atual.nome}"?`)) return;
+    arquivos.current.delete(atualId);
+    lembrarArquivo(atualId, null);
     const resto = docs.filter((x) => x.id !== atualId);
     const lista = resto.length ? resto : [novoDoc()];
     setDocs(lista);
@@ -242,11 +267,34 @@ export default function EditorTexto() {
     leitor.readAsDataURL(f);
   }
 
+  // Abrir: no Chrome/Edge o documento fica ligado ao arquivo (Salvar grava nele).
+  async function abrir() {
+    if (!suportaArquivoLocal) return arquivo.current.click();
+    try {
+      const r = await escolherArquivo([TIPOS.docx, TIPOS.texto]);
+      if (!r) return;
+      for (const [id, h] of arquivos.current) {
+        if (docs.some((x) => x.id === id) && (await h.isSameEntry?.(r.handle))) {
+          trocar(id);
+          return setMsg(`"${r.handle.name}" já está aberto.`);
+        }
+      }
+      await carregarArquivo(r.file, r.handle);
+    } catch (err) {
+      setMsg(err.message || "Não foi possível abrir o arquivo.");
+    }
+  }
+
   async function abrirArquivo(e) {
     const f = e.target.files[0];
     e.target.value = "";
-    if (!f) return;
+    if (f) await carregarArquivo(f, null);
+  }
+
+  async function carregarArquivo(f, handle) {
     const nome = f.name.replace(/\.[^.]+$/, "");
+    const vinculo = handle ? { arquivo: f.name, alterado: false } : {};
+    let novo = null;
     try {
       setMsg("Abrindo arquivo...");
       if (/\.docx$/i.test(f.name)) {
@@ -259,34 +307,67 @@ export default function EditorTexto() {
           const mammoth = await import("mammoth");
           conv = { html: (await mammoth.convertToHtml({ arrayBuffer: buf })).value };
         }
-        criar(nome, { html: sanitizar(conv.html || "<p><br></p>"), cabecalho: sanitizar(conv.cabecalho || ""), rodape: sanitizar(conv.rodape || ""), pagina: conv.pagina || PAGINA_PADRAO });
+        const avisos = handle ? await recursosNaoSuportados(buf, "docx") : [];
+        novo = criar(nome, { html: sanitizar(conv.html || "<p><br></p>"), cabecalho: sanitizar(conv.cabecalho || ""), rodape: sanitizar(conv.rodape || ""), pagina: conv.pagina || PAGINA_PADRAO, ...vinculo, avisos });
       } else if (/\.(txt|md)$/i.test(f.name)) {
         const t = await f.text();
-        criar(nome, { html: t.split(/\r?\n/).map((l) => `<p>${esc(l) || "<br>"}</p>`).join("") });
+        novo = criar(nome, { html: t.split(/\r?\n/).map((l) => `<p>${esc(l) || "<br>"}</p>`).join(""), ...vinculo });
       } else if (/\.html?$/i.test(f.name)) {
-        criar(nome, { html: sanitizar(await f.text()) });
+        novo = criar(nome, { html: sanitizar(await f.text()), ...vinculo });
       } else {
         throw new Error("Formato não suportado. Use .docx, .txt ou .html (arquivos .doc antigos: salve como .docx no Word antes).");
       }
-      setMsg("");
+      if (handle && novo) {
+        arquivos.current.set(novo.id, handle);
+        lembrarArquivo(novo.id, handle);
+      }
+      setMsg(novo?.avisos?.length ? `Atenção: este arquivo tem ${novo.avisos.join(", ")}, que o editor ainda não mantém. Ao salvar por cima eles seriam perdidos; você será avisado antes.` : "");
     } catch (err) {
       setMsg(err.message || "Não foi possível abrir o arquivo.");
     }
   }
 
-  async function salvarDocx() {
+  // Salvar: grava por cima do arquivo aberto (Chrome/Edge). Sem arquivo ligado, pergunta onde
+  // salvar; em navegadores sem esse recurso, baixa um .docx.
+  async function salvarDocx(comoNovo = false) {
     // Imagens precisam de tamanho explícito no .docx
     editor.current.querySelectorAll("img").forEach((img) => {
       if (!img.getAttribute("width")) img.setAttribute("width", img.clientWidth || img.naturalWidth || 300);
       if (!img.getAttribute("height")) img.setAttribute("height", img.clientHeight || img.naturalHeight || 200);
     });
-    salvarHtml();
-    setMsg("Gerando .docx...");
+    const conteudo = { html: editor.current.innerHTML, cabecalho: cab.current.innerHTML, rodape: rod.current.innerHTML };
+    const doc = atual;
+    const nomeBase = (doc.nome || "documento").replace(/\.docx$/i, "");
     try {
-      await htmlParaDocx(atual, { html: editor.current.innerHTML, cabecalho: cab.current.innerHTML, rodape: rod.current.innerHTML });
-      setMsg("");
+      let handle = comoNovo ? null : arquivos.current.get(doc.id);
+      if (handle && !/\.docx$/i.test(handle.name)) handle = null; // .txt/.html: salva como .docx
+      if (handle && doc.avisos?.length && !doc.avisosAceitos) {
+        const ok = confirm(`"${handle.name}" tem ${doc.avisos.join(", ")}, que este editor não mantém. Se salvar por cima, isso será perdido no arquivo.\n\nOK = salvar por cima mesmo assim\nCancelar = "Salvar como…" outro arquivo (o original fica intacto)`);
+        if (!ok) return salvarDocx(true);
+      }
+      if (!handle && !comoNovo && doc.arquivo && !arquivos.current.has(doc.id) && suportaArquivoLocal) {
+        setMsg(`Não encontrei mais o vínculo com "${doc.arquivo}". Escolha onde salvar.`);
+      }
+      setMsg("Salvando...");
+      const blob = await htmlParaDocx(doc, conteudo);
+      if (handle) {
+        await gravarNoArquivo(handle, blob);
+      } else if (suportaArquivoLocal) {
+        handle = await salvarComo(blob, `${nomeBase}.docx`, [TIPOS.docx]);
+        if (!handle) return setMsg("");
+        arquivos.current.set(doc.id, handle);
+        lembrarArquivo(doc.id, handle);
+      } else {
+        baixar(blob, `${nomeBase}.docx`);
+      }
+      const hora = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      setDocs((ds) => ds.map((x) => (x.id === doc.id ? {
+        ...x, ...conteudo, alterado: false,
+        ...(handle ? { arquivo: handle.name, nome: handle.name.replace(/\.docx$/i, ""), avisos: comoNovo || !x.arquivo || x.arquivo !== handle.name ? [] : x.avisos, avisosAceitos: true } : {}),
+      } : x)));
+      setMsg(handle ? `Salvo em "${handle.name}" às ${hora}.` : "Arquivo .docx baixado (este navegador não permite salvar no mesmo arquivo; use Chrome ou Edge no computador).");
     } catch (err) {
-      setMsg("Erro ao gerar .docx: " + err.message);
+      setMsg("Erro ao salvar: " + err.message);
     }
   }
 
@@ -409,18 +490,19 @@ export default function EditorTexto() {
   function teclas(e) {
     if (!(e.ctrlKey || e.metaKey)) return;
     const k = e.key.toLowerCase();
-    if (k === "s") { e.preventDefault(); salvarDocx(); }
+    if (k === "s") { e.preventDefault(); salvarDocx(e.shiftKey); }
     if (k === "p") { e.preventDefault(); imprimir(); }
     if (k === "l" || k === "f") { e.preventDefault(); abrirBusca(false); }
     if (k === "h") { e.preventDefault(); abrirBusca(true); }
   }
 
+  const arquivoAtual = atual.arquivo && (arquivos.current.get(atual.id)?.name || atual.arquivo);
   const palavras = (atual.html.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").match(/\S+/g) || []).length;
   const totalPag = quebras.length + 1;
   const textoNumero = { direita: "1", centro: "1", xdey: `Página 1 de ${totalPag}` }[atual.numPag];
 
   return (
-    <div style={{ fontFamily: "sans-serif" }}>
+    <div style={{ fontFamily: "sans-serif" }} onKeyDown={teclas}>
       <style>{CSS_PAGINA}</style>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
         <select value={atualId} onChange={(e) => trocar(e.target.value)} style={{ ...sSelect, maxWidth: 220 }} title="Documentos salvos neste navegador">
@@ -428,13 +510,20 @@ export default function EditorTexto() {
         </select>
         <input value={atual.nome} onChange={(e) => renomear(e.target.value)} style={{ ...sSelect, flex: "1 1 180px", padding: "0 8px" }} placeholder="Nome do documento" />
         <button style={sBotao()} onClick={() => criar()}>＋ Novo</button>
-        <button style={sBotao()} onClick={() => arquivo.current.click()}>📂 Abrir</button>
-        <button style={sBotao()} onClick={salvarDocx}>💾 Word (.docx)</button>
+        <button style={sBotao()} onClick={abrir} title="Abrir .docx, .txt ou .html do computador">📂 Abrir</button>
+        <button style={sBotao()} onClick={() => salvarDocx(false)} title={arquivoAtual ? `Gravar no arquivo "${arquivoAtual}" (Ctrl+S)` : "Salvar em Word (.docx) (Ctrl+S)"}>💾 Salvar</button>
+        <button style={sBotao()} onClick={() => salvarDocx(true)} title="Salvar uma cópia em outro arquivo (Ctrl+Shift+S)">Salvar como…</button>
         <button style={sBotao()} onClick={imprimir}>🖨️ PDF / Imprimir</button>
         <button style={sBotao()} onClick={excluir} title="Excluir documento">🗑️</button>
         <input ref={arquivo} type="file" accept=".docx,.txt,.md,.html,.htm" onChange={abrirArquivo} style={{ display: "none" }} />
         <input ref={arquivoImg} type="file" accept="image/png,image/jpeg,image/gif,image/bmp" onChange={inserirImagem} style={{ display: "none" }} />
       </div>
+      <p style={{ fontSize: 12, color: "#666", margin: "-4px 0 8px" }}>
+        {arquivoAtual
+          ? <>📄 Arquivo: <b>{arquivoAtual}</b> · {atual.alterado ? <span style={{ color: "#b0471b" }}>● alterações não salvas (Ctrl+S grava no arquivo)</span> : <span style={{ color: "#4a7a4a" }}>✓ salvo</span>}</>
+          : suportaArquivoLocal ? "Documento ainda não salvo em arquivo: \"Salvar\" pergunta onde guardar e, depois disso, grava sempre no mesmo arquivo."
+          : "Este navegador não permite salvar no mesmo arquivo: \"Salvar\" baixa um .docx novo. Para gravar no próprio arquivo, use Chrome ou Edge no computador."}
+      </p>
       {msg && <p style={{ fontSize: 13, color: GOLD, margin: "0 0 8px" }}>{msg}</p>}
 
       <div style={sBarra} onMouseDown={(e) => { if (e.target.tagName === "BUTTON") e.preventDefault(); }}>
@@ -567,7 +656,7 @@ export default function EditorTexto() {
           </div>
           <div style={{ position: "relative", flex: 1 }}>
             <div ref={editor} className="ed-texto" contentEditable suppressContentEditableWarning spellCheck lang="pt-BR"
-              onInput={salvarHtml} onKeyDown={teclas} style={{ minHeight: alturaUtil, position: "relative" }} />
+              onInput={salvarHtml} style={{ minHeight: alturaUtil, position: "relative" }} />
             {quebras.map((y, i) => (
               <div key={i} style={{ position: "absolute", left: `-${m.esq}cm`, right: `-${m.dir}cm`, top: y, borderTop: "1px dashed #c9bfa8", pointerEvents: "none" }}>
                 <span style={{ position: "absolute", right: 4, top: -9, fontSize: 10, color: "#a8987a", background: "#fff", padding: "0 4px", fontFamily: "sans-serif" }}>Página {i + 2}</span>
@@ -587,7 +676,7 @@ export default function EditorTexto() {
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, fontSize: 12, color: "#666", marginTop: 6 }}>
         <span>Página {Math.min(pagAtual, totalPag)} de {totalPag} · {palavras} palavra{palavras === 1 ? "" : "s"} · salvo automaticamente neste navegador</span>
-        <span>Ctrl+S salva .docx · Ctrl+P imprime · Ctrl+L localiza · Ctrl+H substitui</span>
+        <span>Ctrl+S salva · Ctrl+Shift+S salva como · Ctrl+P imprime · Ctrl+L localiza · Ctrl+H substitui</span>
       </div>
     </div>
   );

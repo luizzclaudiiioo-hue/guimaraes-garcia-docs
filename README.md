@@ -44,7 +44,15 @@ Além do gerador de documentos e das publicações, o app tem duas abas de escri
   meses), inserir e excluir linhas/colunas, ordenar, filtrar, copiar e colar
   (inclusive do Excel), desfazer e AutoSoma. Abre e salva `.xlsx` e `.csv`.
 
-Os arquivos ficam salvos automaticamente no navegador de quem usa (não vão para
-o servidor). Para guardar ou compartilhar, salve em `.docx` ou `.xlsx`.
+**Abrir e salvar no mesmo arquivo:** no Chrome e no Edge (computador), "📂 Abrir"
+liga o documento ou a planilha ao arquivo escolhido, e "💾 Salvar" (Ctrl+S) grava
+por cima desse mesmo arquivo; "Salvar como…" (Ctrl+Shift+S) cria outro. Na primeira
+gravação o navegador pede permissão. Se o arquivo tiver recursos que o app ainda não
+mantém (comentários, controle de alterações, gráficos, macros etc.), o app avisa antes
+de gravar por cima. Em outros navegadores, "Salvar" baixa um arquivo novo.
+
+O conteúdo também fica guardado automaticamente no navegador de quem usa (não vai
+para o servidor). Código: `src/arquivoLocal.js`.
+
 O motor de fórmulas fica em `src/formulas.js` e a conversão de/para `.docx` em
 `src/docxConversao.js`.

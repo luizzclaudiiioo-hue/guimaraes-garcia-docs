@@ -11,15 +11,6 @@ export function dimensoes(pagina = PAGINA_PADRAO) {
   return pagina.orient === "paisagem" ? [h, w] : [w, h];
 }
 
-function baixar(blob, nome) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = nome;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 // ---------- HTML do editor → .docx ----------
 
 const TWIP_CM = 566.93;
@@ -52,6 +43,7 @@ function bytesDeDataUrl(src) {
   return { tipo: m[1].toLowerCase().replace("jpeg", "jpg"), bytes };
 }
 
+// Devolve o .docx como Blob (quem chama decide se grava no arquivo ou baixa).
 export async function htmlParaDocx(doc, { html, cabecalho, rodape }) {
   const d = await import("docx");
   const parse = (h) => new DOMParser().parseFromString(`<div>${h || ""}</div>`, "text/html").body.firstChild;
@@ -276,7 +268,7 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape }) {
       children: (() => { const b = blocos(parse(html)); return b.length ? b : [new d.Paragraph("")]; })(),
     }],
   });
-  baixar(await d.Packer.toBlob(documento), `${doc.nome || "documento"}.docx`);
+  return d.Packer.toBlob(documento);
 }
 
 // ---------- .docx → HTML do editor ----------

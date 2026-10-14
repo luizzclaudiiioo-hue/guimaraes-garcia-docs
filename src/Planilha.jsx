@@ -5,6 +5,7 @@ import {
   chave, lerChave, nomeColuna, indiceColuna, formulaParaIngles, formulaParaPortugues, deslocarFormula, transformarRefs,
   dataParaSerie,
 } from "./formulas.js";
+import { TIPOS, arquivoLembrado, baixar, escolherArquivo, gravarNoArquivo, lembrarArquivo, recursosNaoSuportados, salvarComo, suportaArquivoLocal } from "./arquivoLocal.js";
 
 const GOLD = "#9a6e1e";
 const CHAVE = "planilha.pastas";
@@ -16,14 +17,6 @@ function ler(k, padrao) {
 }
 function gravar(k, valor) {
   try { localStorage.setItem(k, JSON.stringify(valor)); return true; } catch { return false; }
-}
-function baixar(blob, nome) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = nome;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 const novaAba = (nome = "Planilha1") => ({ nome, cel: {}, larg: {}, alt: {}, mescl: [], linhas: 100, colunas: 26 });
@@ -284,6 +277,7 @@ function fmtDoExcel(nf) {
 const argb = (hex) => "FF" + hex.replace("#", "").toUpperCase();
 const hexDeArgb = (c) => (c?.argb && c.argb.length === 8 ? "#" + c.argb.slice(2) : undefined);
 
+// Devolve o .xlsx como Blob (quem chama decide se grava no arquivo ou baixa).
 async function exportarXlsx(pasta, valor) {
   const ExcelJS = (await import("exceljs")).default;
   const wb = new ExcelJS.Workbook();
@@ -317,7 +311,7 @@ async function exportarXlsx(pasta, valor) {
     if (p.cong && (p.cong.r || p.cong.c)) ws.views = [{ state: "frozen", xSplit: p.cong.c, ySplit: p.cong.r }];
   });
   const buf = await wb.xlsx.writeBuffer();
-  baixar(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `${pasta.nome || "planilha"}.xlsx`);
+  return new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 }
 
 async function importarXlsx(arquivo) {
@@ -451,6 +445,10 @@ export default function Planilha() {
   const arrastando = useRef(false);
   const modoDigitar = useRef(false);
   const emEdicao = useRef(false); // evita confirmar duas vezes (tecla + perda de foco)
+  const arquivos = useRef(new Map()); // id da pasta → arquivo no computador
+  const [, setVersaoArquivos] = useState(0);
+  const pastasRef = useRef(pastas);
+  pastasRef.current = pastas;
   const [rolagem, setRolagem] = useState({ top: 0, altura: 800 });
   const [preench, setPreench] = useState(null); // área de destino da alça de preenchimento
   const preenchRef = useRef(null);
@@ -476,6 +474,18 @@ export default function Planilha() {
     return { mestres, cobertas };
   }, [mescl]);
   const mesclDe = (r, c) => mestres.get(chave(r, c)) || cobertas.get(chave(r, c));
+
+  // Pasta ligada a um arquivo do computador: recupera o vínculo depois de recarregar a página.
+  useEffect(() => {
+    if (!pasta.arquivo || arquivos.current.has(pasta.id)) return;
+    arquivoLembrado(pasta.id).then((h) => { if (h) { arquivos.current.set(pasta.id, h); setVersaoArquivos((x) => x + 1); } });
+  }, [pasta.id, pasta.arquivo]);
+
+  useEffect(() => {
+    const aviso = (e) => { if (pastas.some((x) => x.arquivo && x.alterado)) { e.preventDefault(); e.returnValue = ""; } };
+    window.addEventListener("beforeunload", aviso);
+    return () => window.removeEventListener("beforeunload", aviso);
+  }, [pastas]);
 
   useEffect(() => {
     if (!gravar(CHAVE, pastas)) setMsg("Atenção: o arquivo é grande demais para ficar salvo neste navegador. Salve em Excel (.xlsx) para não perder.");
@@ -532,7 +542,7 @@ export default function Planilha() {
       if (h[h.length - 1] !== x.planilhas) h.push(x.planilhas);
       if (hist.current.passado.length > 100) hist.current.passado.shift();
       hist.current.futuro = [];
-      return { ...x, planilhas: novas, atualizado: Date.now() };
+      return { ...x, planilhas: novas, atualizado: Date.now(), alterado: true };
     }));
   }
 
@@ -544,7 +554,7 @@ export default function Planilha() {
     setPastas((ps) => ps.map((x) => {
       if (x.id !== pasta.id) return x;
       if (para[para.length - 1] !== x.planilhas) para.push(x.planilhas);
-      return { ...x, planilhas: anterior };
+      return { ...x, planilhas: anterior, alterado: true };
     }));
   }
 
@@ -601,14 +611,14 @@ export default function Planilha() {
       }
       editar([{ r: sel.r, c: sel.c, patch }]);
     }
-    grade.current?.focus(); // antes de desmontar o campo, para não perder teclas
+    grade.current?.focus({ preventScroll: true }); // antes de desmontar o campo, para não perder teclas
     setEditando(null);
     mover(dr, dc, false);
   }
 
   function cancelar() {
     emEdicao.current = false;
-    grade.current?.focus();
+    grade.current?.focus({ preventScroll: true });
     setEditando(null);
   }
 
@@ -643,7 +653,7 @@ export default function Planilha() {
     arrastando.current = true;
     setSel({ r, c });
     if (!e.shiftKey) setAnc({ r, c });
-    grade.current?.focus();
+    grade.current?.focus({ preventScroll: true });
   }
 
   function teclaEdicao(e) {
@@ -785,28 +795,57 @@ export default function Planilha() {
     setEditando(null);
   }
 
-  function criarPasta(nome, planilhas) {
-    const n = novaPasta(nome, planilhas);
+  function criarPasta(nome, planilhas, extra = {}) {
+    const n = { ...novaPasta(nome, planilhas), ...extra };
     setPastas((ps) => [n, ...ps]);
     trocarPasta(n.id);
+    return n;
   }
 
   function excluirPasta() {
     if (!confirm(`Excluir "${pasta.nome}"?`)) return;
+    arquivos.current.delete(pasta.id);
+    lembrarArquivo(pasta.id, null);
     const resto = pastas.filter((x) => x.id !== pasta.id);
     const lista = resto.length ? resto : [novaPasta()];
     setPastas(lista);
     trocarPasta(lista[0].id);
   }
 
+  // Abrir: no Chrome/Edge a pasta fica ligada ao arquivo (Salvar grava nele).
+  async function abrir() {
+    if (!suportaArquivoLocal) return arquivo.current.click();
+    try {
+      const r = await escolherArquivo([TIPOS.xlsx, TIPOS.csv]);
+      if (!r) return;
+      for (const [id, h] of arquivos.current) {
+        if (pastas.some((x) => x.id === id) && (await h.isSameEntry?.(r.handle))) {
+          trocarPasta(id);
+          return setMsg(`"${r.handle.name}" já está aberto.`);
+        }
+      }
+      await carregarArquivo(r.file, r.handle);
+    } catch (err) {
+      setMsg(err.message || "Não foi possível abrir o arquivo.");
+    }
+  }
+
   async function abrirArquivo(e) {
     const f = e.target.files[0];
     e.target.value = "";
-    if (!f) return;
+    if (f) await carregarArquivo(f, null);
+  }
+
+  async function carregarArquivo(f, handle) {
     const nome = f.name.replace(/\.[^.]+$/, "");
+    const vinculo = handle ? { arquivo: f.name, alterado: false } : {};
+    let nova = null;
     try {
       setMsg("Abrindo arquivo...");
-      if (/\.xlsx$/i.test(f.name)) criarPasta(nome, await importarXlsx(f));
+      if (/\.xlsx$/i.test(f.name)) {
+        const avisos = handle ? await recursosNaoSuportados(await f.arrayBuffer(), "xlsx") : [];
+        nova = criarPasta(nome, await importarXlsx(f), { ...vinculo, avisos });
+      }
       else if (/\.(csv|txt|tsv)$/i.test(f.name)) {
         const p = novaAba(nome.slice(0, 31));
         const linhas = lerCsv(await f.text());
@@ -817,17 +856,58 @@ export default function Planilha() {
         }));
         p.linhas = Math.max(100, linhas.length + 20);
         p.colunas = Math.max(26, Math.max(0, ...linhas.map((l) => l.length)) + 2);
-        criarPasta(nome, [p]);
+        nova = criarPasta(nome, [p], vinculo);
       } else throw new Error("Formato não suportado. Use .xlsx ou .csv (arquivos .xls antigos: salve como .xlsx no Excel antes).");
-      setMsg("");
+      if (handle && nova) {
+        arquivos.current.set(nova.id, handle);
+        lembrarArquivo(nova.id, handle);
+      }
+      setMsg(nova?.avisos?.length ? `Atenção: este arquivo tem ${nova.avisos.join(", ")}, que a planilha ainda não mantém. Ao salvar por cima eles seriam perdidos; você será avisado antes.` : "");
     } catch (err) {
       setMsg(err.message || "Não foi possível abrir o arquivo.");
     }
   }
 
-  async function salvarXlsx() {
-    setMsg("Gerando .xlsx...");
-    try { await exportarXlsx(pasta, valor); setMsg(""); } catch (err) { setMsg("Erro ao gerar .xlsx: " + err.message); }
+  // Salvar: grava por cima do arquivo aberto (Chrome/Edge). Sem arquivo ligado, pergunta onde
+  // salvar; em navegadores sem esse recurso, baixa um .xlsx.
+  async function salvar(comoNovo = false) {
+    if (editando) flushSync(() => confirmar());
+    const p = pastasRef.current.find((x) => x.id === pasta.id);
+    const calc = criarCalculadora(p.planilhas);
+    const nomeBase = (p.nome || "planilha").replace(/\.(xlsx|csv)$/i, "");
+    try {
+      let handle = comoNovo ? null : arquivos.current.get(p.id);
+      const ehCsv = handle && /\.(csv|tsv|txt)$/i.test(handle.name);
+      if (ehCsv) {
+        const temMais = p.planilhas.length > 1 || p.planilhas.some((pl) => Object.values(pl.cel).some((c) => c.e?.[0] === "=" || c.b || c.i || c.bg || c.cor || c.bd || c.fmt));
+        if (temMais && !p.avisosAceitos && !confirm(`"${handle.name}" é um CSV: ele guarda só os valores da planilha "${p.planilhas[abaIdx]?.nome}". Fórmulas, formatação e outras planilhas não ficam no arquivo.\n\nOK = salvar o CSV mesmo assim\nCancelar = "Salvar como…" em Excel (.xlsx)`)) return salvar(true);
+      } else if (handle && p.avisos?.length && !p.avisosAceitos) {
+        const ok = confirm(`"${handle.name}" tem ${p.avisos.join(", ")}, que esta planilha não mantém. Se salvar por cima, isso será perdido no arquivo.\n\nOK = salvar por cima mesmo assim\nCancelar = "Salvar como…" outro arquivo (o original fica intacto)`);
+        if (!ok) return salvar(true);
+      }
+      setMsg("Salvando...");
+      const blob = ehCsv
+        ? new Blob([csvDe(p.planilhas[abaIdx] || p.planilhas[0], abaIdx, calc)], { type: "text/csv;charset=utf-8" })
+        : await exportarXlsx(p, calc);
+      if (handle) {
+        await gravarNoArquivo(handle, blob);
+      } else if (suportaArquivoLocal) {
+        handle = await salvarComo(blob, `${nomeBase}.xlsx`, [TIPOS.xlsx]);
+        if (!handle) return setMsg("");
+        arquivos.current.set(p.id, handle);
+        lembrarArquivo(p.id, handle);
+      } else {
+        baixar(blob, `${nomeBase}.xlsx`);
+      }
+      const hora = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      setPastas((ps) => ps.map((x) => (x.id === p.id ? {
+        ...x, alterado: x.planilhas !== p.planilhas,
+        ...(handle ? { arquivo: handle.name, nome: handle.name.replace(/\.(xlsx|csv|tsv|txt)$/i, ""), avisos: comoNovo || x.arquivo !== handle.name ? [] : x.avisos, avisosAceitos: true } : {}),
+      } : x)));
+      setMsg(handle ? `Salvo em "${handle.name}" às ${hora}.` : "Arquivo .xlsx baixado (este navegador não permite salvar no mesmo arquivo; use Chrome ou Edge no computador).");
+    } catch (err) {
+      setMsg("Erro ao salvar: " + err.message);
+    }
   }
 
   function salvarCsv() {
@@ -1157,7 +1237,7 @@ export default function Planilha() {
     mudarPlanilhas((pls) => pls.map((p, i) => (i === abaIdx ? { ...p, linhas: Math.max(p.linhas, a.r + 1, b.r + 1), colunas: Math.max(p.colunas, a.c + 1, b.c + 1) } : p)));
     setAnc(a);
     setSel(b);
-    grade.current?.focus();
+    grade.current?.focus({ preventScroll: true });
   }
 
   // ----- resumo da seleção -----
@@ -1179,6 +1259,7 @@ export default function Planilha() {
 
   const colunas = Array.from({ length: planilha.colunas }, (_, c) => c);
   const textoBarra = editando ? rascunho : celSel.e || "";
+  const arquivoAtual = pasta.arquivo && (arquivos.current.get(pasta.id)?.name || pasta.arquivo);
 
   // Desenha só as linhas visíveis (mais uma margem): planilhas grandes continuam leves.
   const base = medidas.current.get("base") || 25;
@@ -1212,8 +1293,8 @@ export default function Planilha() {
     if (Math.abs(t - rolagem.top) > 200) setRolagem((x) => ({ ...x, top: t }));
   }
 
-  const selecionarColuna = (e, c) => { e.preventDefault(); if (editando) confirmar(); setAnc({ r: planilha.linhas - 1, c: e.shiftKey ? anc.c : c }); setSel({ r: 0, c }); grade.current?.focus(); };
-  const selecionarLinha = (e, r) => { e.preventDefault(); if (editando) confirmar(); setAnc({ r: e.shiftKey ? anc.r : r, c: planilha.colunas - 1 }); setSel({ r, c: 0 }); grade.current?.focus(); };
+  const selecionarColuna = (e, c) => { e.preventDefault(); if (editando) confirmar(); setAnc({ r: planilha.linhas - 1, c: e.shiftKey ? anc.c : c }); setSel({ r: 0, c }); grade.current?.focus({ preventScroll: true }); };
+  const selecionarLinha = (e, r) => { e.preventDefault(); if (editando) confirmar(); setAnc({ r: e.shiftKey ? anc.r : r, c: planilha.colunas - 1 }); setSel({ r, c: 0 }); grade.current?.focus({ preventScroll: true }); };
 
   function celula(r, c) {
     const k = chave(r, c);
@@ -1288,19 +1369,26 @@ export default function Planilha() {
   }
 
   return (
-    <div style={{ fontFamily: "sans-serif" }}>
+    <div style={{ fontFamily: "sans-serif" }} onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); salvar(e.shiftKey); } }}>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
         <select value={pasta.id} onChange={(e) => trocarPasta(e.target.value)} style={{ ...sSelect, maxWidth: 220 }} title="Planilhas salvas neste navegador">
           {pastas.map((x) => <option key={x.id} value={x.id}>{x.nome || "(sem nome)"}</option>)}
         </select>
         <input value={pasta.nome} onChange={(e) => setPastas((ps) => ps.map((x) => (x.id === pasta.id ? { ...x, nome: e.target.value } : x)))} style={{ ...sSelect, flex: "1 1 160px", padding: "0 8px" }} placeholder="Nome do arquivo" />
         <button style={sBotao()} onClick={() => criarPasta()}>＋ Nova</button>
-        <button style={sBotao()} onClick={() => arquivo.current.click()}>📂 Abrir</button>
-        <button style={sBotao()} onClick={salvarXlsx}>💾 Excel (.xlsx)</button>
-        <button style={sBotao()} onClick={salvarCsv}>CSV</button>
+        <button style={sBotao()} onClick={abrir} title="Abrir .xlsx ou .csv do computador">📂 Abrir</button>
+        <button style={sBotao()} onClick={() => salvar(false)} title={arquivoAtual ? `Gravar no arquivo "${arquivoAtual}" (Ctrl+S)` : "Salvar em Excel (.xlsx) (Ctrl+S)"}>💾 Salvar</button>
+        <button style={sBotao()} onClick={() => salvar(true)} title="Salvar uma cópia em outro arquivo (Ctrl+Shift+S)">Salvar como…</button>
+        <button style={sBotao()} onClick={salvarCsv} title="Baixar a planilha atual em CSV">CSV</button>
         <button style={sBotao()} onClick={excluirPasta} title="Excluir arquivo">🗑️</button>
         <input ref={arquivo} type="file" accept=".xlsx,.csv,.tsv,.txt" onChange={abrirArquivo} style={{ display: "none" }} />
       </div>
+      <p style={{ fontSize: 12, color: "#666", margin: "-4px 0 8px" }}>
+        {arquivoAtual
+          ? <>📊 Arquivo: <b>{arquivoAtual}</b> · {pasta.alterado ? <span style={{ color: "#b0471b" }}>● alterações não salvas (Ctrl+S grava no arquivo)</span> : <span style={{ color: "#4a7a4a" }}>✓ salvo</span>}</>
+          : suportaArquivoLocal ? "Planilha ainda não salva em arquivo: \"Salvar\" pergunta onde guardar e, depois disso, grava sempre no mesmo arquivo."
+          : "Este navegador não permite salvar no mesmo arquivo: \"Salvar\" baixa um .xlsx novo. Para gravar no próprio arquivo, use Chrome ou Edge no computador."}
+      </p>
       {msg && <p style={{ fontSize: 13, color: GOLD, margin: "0 0 8px" }}>{msg}</p>}
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center", padding: 6, background: "#f4f1ea", border: "1px solid rgba(0,0,0,0.12)", borderRadius: "10px 10px 0 0" }}
@@ -1370,7 +1458,7 @@ export default function Planilha() {
 
       <div style={{ display: "flex", gap: 4, alignItems: "center", padding: "4px 6px", background: "#fff", borderLeft: "1px solid rgba(0,0,0,0.12)", borderRight: "1px solid rgba(0,0,0,0.12)" }}>
         <input value={nomeCaixa ?? refSel} onChange={(e) => setNomeCaixa(e.target.value)} onFocus={(e) => e.target.select()}
-          onKeyDown={(e) => { if (e.key === "Enter") irPara(e.target.value); if (e.key === "Escape") { setNomeCaixa(null); grade.current?.focus(); } }}
+          onKeyDown={(e) => { if (e.key === "Enter") irPara(e.target.value); if (e.key === "Escape") { setNomeCaixa(null); grade.current?.focus({ preventScroll: true }); } }}
           onBlur={() => setNomeCaixa(null)}
           style={{ ...sSelect, width: 90, textAlign: "center", fontWeight: 500 }} title="Ir para célula" />
         <span style={{ color: "#888", fontStyle: "italic", fontFamily: "Georgia, serif", padding: "0 4px" }}>fx</span>
@@ -1389,7 +1477,7 @@ export default function Planilha() {
             <tr>
               <th data-cab style={{ ...sCab, top: 0, left: 0, zIndex: 5, width: 44, minWidth: 44, height: ALT_LINHA }}
                 ref={(el) => { if (el) larguras.current.set("cab", el.offsetWidth); }}
-                onMouseDown={(e) => { e.preventDefault(); setAnc({ r: planilha.linhas - 1, c: planilha.colunas - 1 }); setSel({ r: 0, c: 0 }); grade.current?.focus(); }} />
+                onMouseDown={(e) => { e.preventDefault(); setAnc({ r: planilha.linhas - 1, c: planilha.colunas - 1 }); setSel({ r: 0, c: 0 }); grade.current?.focus({ preventScroll: true }); }} />
               {colunas.map((c) => {
                 const w = planilha.larg?.[c] || LARG_PADRAO;
                 return (
