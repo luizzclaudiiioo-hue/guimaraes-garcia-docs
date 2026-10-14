@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import {
   analisar, avaliar, valorFinal, interpretarEntrada, exibir, paraTexto, Erro, ERROS, erroEmIngles, erroDoExcel,
   chave, lerChave, nomeColuna, indiceColuna, formulaParaIngles, formulaParaPortugues, deslocarFormula, transformarRefs,
@@ -116,11 +117,88 @@ function reestruturar(planilhas, abaIdx, eixo, pos, delta) {
       larg[eixo === "c" && n >= pos ? n + delta : n] = w;
     }
     return {
-      ...p, cel, larg,
+      ...p, cel, larg, filtro: moverFiltro(p.filtro, eixo, pos, delta),
       linhas: eixo === "r" ? Math.max(1, p.linhas + delta) : p.linhas,
       colunas: eixo === "c" ? Math.max(1, p.colunas + delta) : p.colunas,
     };
   });
+}
+
+function linhasOcultas(planilha, valor, a) {
+  const ocultas = new Set();
+  const f = planilha.filtro;
+  if (!f) return ocultas;
+  const crit = Object.entries(f.excl || {}).filter(([, v]) => v.length).map(([c, v]) => [Number(c), new Set(v)]);
+  if (!crit.length) return ocultas;
+  const fim = fimFiltro(planilha, f);
+  for (let r = f.r + 1; r <= fim; r++) {
+    if (crit.some(([c, excl]) => excl.has(textoFiltro(planilha, valor, a, r, c)))) ocultas.add(r);
+  }
+  return ocultas;
+}
+
+function moverFiltro(f, eixo, pos, delta) {
+  if (!f) return f;
+  if (eixo === "r") {
+    if (f.r < pos) return f;
+    if (f.r === pos && delta < 0) return undefined; // a linha de títulos foi excluída
+    return { ...f, r: f.r + delta };
+  }
+  if (delta < 0 && f.c1 === f.c2 && f.c1 === pos) return undefined;
+  const excl = {};
+  for (const [c, v] of Object.entries(f.excl || {})) {
+    const n = Number(c);
+    if (n === pos && delta < 0) continue;
+    excl[n >= pos ? n + delta : n] = v;
+  }
+  const ajusta = (c, fim) => (delta > 0 ? (c >= pos ? c + 1 : c) : c > pos || (c === pos && fim) ? c - 1 : c);
+  return { ...f, c1: ajusta(f.c1, false), c2: ajusta(f.c2, true), excl };
+}
+
+// ---------- Ordenar e filtrar ----------
+
+// Ordem do Excel: números (e datas), textos, lógicos, erros; vazias sempre por último.
+function compararOrdem(a, b, desc) {
+  const vazio = (v) => v === null || v === "";
+  const grupo = (v) => (typeof v === "number" ? 0 : typeof v === "string" ? 1 : typeof v === "boolean" ? 2 : 3);
+  if (vazio(a) || vazio(b)) return vazio(a) - vazio(b);
+  if (a instanceof Erro || b instanceof Erro) return (a instanceof Erro) - (b instanceof Erro);
+  const ga = grupo(a), gb = grupo(b);
+  let k = ga !== gb ? ga - gb : ga === 1 ? a.localeCompare(b, "pt-BR", { sensitivity: "base", numeric: true }) : a === b ? 0 : a < b ? -1 : 1;
+  return desc ? -k : k;
+}
+
+// Texto que identifica o valor no filtro (o mesmo que aparece na célula).
+function textoFiltro(planilha, valor, a, r, c) {
+  const cel = planilha.cel[chave(r, c)];
+  if (!cel) return "";
+  return exibir(valor(a, r, c), cel.fmt || (ehFormulaData(cel.e) ? "data" : undefined));
+}
+
+// Última linha com dados nas colunas do filtro.
+function fimFiltro(planilha, f) {
+  let fim = f.r;
+  for (const k of Object.keys(planilha.cel)) {
+    const { r, c } = lerChave(k);
+    if (r > fim && c >= f.c1 && c <= f.c2 && planilha.cel[k].e) fim = r;
+  }
+  return fim;
+}
+
+// Bloco contínuo de dados em volta da célula (a "região atual" do Excel).
+function regiaoAtual(planilha, r, c) {
+  const tem = (rr, cc) => rr >= 0 && cc >= 0 && rr < planilha.linhas && cc < planilha.colunas && !!planilha.cel[chave(rr, cc)]?.e;
+  const linhaTem = (rr, a, b) => { for (let cc = a; cc <= b; cc++) if (tem(rr, cc)) return true; return false; };
+  const colunaTem = (cc, a, b) => { for (let rr = a; rr <= b; rr++) if (tem(rr, cc)) return true; return false; };
+  let r1 = r, r2 = r, c1 = c, c2 = c;
+  for (let mudou = true; mudou;) {
+    mudou = false;
+    if (linhaTem(r1 - 1, c1 - 1, c2 + 1)) { r1--; mudou = true; }
+    if (linhaTem(r2 + 1, c1 - 1, c2 + 1)) { r2++; mudou = true; }
+    if (colunaTem(c1 - 1, r1 - 1, r2 + 1)) { c1--; mudou = true; }
+    if (colunaTem(c2 + 1, r1 - 1, r2 + 1)) { c2++; mudou = true; }
+  }
+  return { r1, r2, c1, c2 };
 }
 
 // ---------- Excel (.xlsx) ----------
@@ -143,6 +221,12 @@ async function exportarXlsx(pasta, valor) {
   const wb = new ExcelJS.Workbook();
   pasta.planilhas.forEach((p, a) => {
     const ws = wb.addWorksheet(p.nome.slice(0, 31) || `Planilha${a + 1}`);
+    if (p.filtro) {
+      const f = p.filtro;
+      const fim = fimFiltro(p, f);
+      ws.autoFilter = `${chave(f.r, f.c1)}:${chave(fim, f.c2)}`;
+      for (const r of linhasOcultas(p, valor, a)) ws.getRow(r + 1).hidden = true;
+    }
     for (const [c, w] of Object.entries(p.larg || {})) ws.getColumn(Number(c) + 1).width = Math.round(w / 7);
     for (const [k, cel] of Object.entries(p.cel)) {
       const x = ws.getCell(k);
@@ -197,6 +281,9 @@ async function importarXlsx(arquivo) {
       });
     });
     (ws.columns || []).forEach((col, i) => { if (col?.width) p.larg[i] = Math.round(col.width * 7); });
+    const af = typeof ws.autoFilter === "string" ? ws.autoFilter : ws.autoFilter?.from && ws.autoFilter?.to ? `${ws.autoFilter.from}:${ws.autoFilter.to}` : null;
+    const m = af && /^\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?\d+$/i.exec(af);
+    if (m) p.filtro = { r: Number(m[2]) - 1, c1: indiceColuna(m[1].toUpperCase()), c2: indiceColuna(m[3].toUpperCase()), excl: {} };
     p.linhas = Math.max(100, maxR + 20);
     p.colunas = Math.max(26, maxC + 2);
     planilhas.push(p);
@@ -268,6 +355,7 @@ export default function Planilha() {
   const [rascunho, setRascunho] = useState("");
   const [msg, setMsg] = useState("");
   const [nomeCaixa, setNomeCaixa] = useState(null);
+  const [menuFiltro, setMenuFiltro] = useState(null); // { c, x, y, marcados: Set, busca }
   const hist = useRef({ passado: [], futuro: [] });
   const clip = useRef(null);
   const grade = useRef(null);
@@ -280,6 +368,8 @@ export default function Planilha() {
   const planilha = pasta.planilhas[Math.min(aba, pasta.planilhas.length - 1)];
   const abaIdx = pasta.planilhas.indexOf(planilha);
   const valor = useMemo(() => criarCalculadora(pasta.planilhas), [pasta.planilhas]);
+  const ocultas = useMemo(() => linhasOcultas(planilha, valor, abaIdx), [planilha, valor, abaIdx]);
+  const filtro = planilha.filtro;
 
   useEffect(() => {
     if (!gravar(CHAVE, pastas)) setMsg("Atenção: o arquivo é grande demais para ficar salvo neste navegador. Salve em Excel (.xlsx) para não perder.");
@@ -343,7 +433,10 @@ export default function Planilha() {
 
   function noIntervalo(fn) {
     const ed = [];
-    for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) ed.push({ r, c, patch: fn(planilha.cel[chave(r, c)] || {}) });
+    for (let r = r1; r <= r2; r++) {
+      if (ocultas.has(r)) continue; // como no Excel, linhas filtradas não são alteradas
+      for (let c = c1; c <= c2; c++) ed.push({ r, c, patch: fn(planilha.cel[chave(r, c)] || {}) });
+    }
     editar(ed);
   }
 
@@ -352,8 +445,11 @@ export default function Planilha() {
   function comecarEdicao(texto, digitando = false, onde = "celula") {
     modoDigitar.current = digitando;
     emEdicao.current = true;
-    setRascunho(texto);
-    setEditando(onde);
+    // Monta o campo de edição na hora, para a próxima tecla digitada já cair nele.
+    flushSync(() => {
+      setRascunho(texto);
+      setEditando(onde);
+    });
   }
 
   function confirmar(dr = 0, dc = 0) {
@@ -368,19 +464,24 @@ export default function Planilha() {
       }
       editar([{ r: sel.r, c: sel.c, patch }]);
     }
+    grade.current?.focus(); // antes de desmontar o campo, para não perder teclas
     setEditando(null);
     mover(dr, dc, false);
-    setTimeout(() => grade.current?.focus(), 0);
   }
 
   function cancelar() {
     emEdicao.current = false;
+    grade.current?.focus();
     setEditando(null);
-    setTimeout(() => grade.current?.focus(), 0);
   }
 
   function mover(dr, dc, estender) {
-    const r = Math.max(0, Math.min(planilha.linhas - 1, sel.r + dr));
+    let r = Math.max(0, Math.min(planilha.linhas - 1, sel.r + dr));
+    if (dr && ocultas.has(r)) {
+      const passo = Math.sign(dr);
+      while (ocultas.has(r) && r + passo >= 0 && r + passo < planilha.linhas) r += passo;
+      if (ocultas.has(r)) r = sel.r;
+    }
     const c = Math.max(0, Math.min(planilha.colunas - 1, sel.c + dc));
     setSel({ r, c });
     if (!estender) setAnc({ r, c });
@@ -582,6 +683,93 @@ export default function Planilha() {
     baixar(new Blob([csvDe(planilha, abaIdx, valor)], { type: "text/csv;charset=utf-8" }), `${pasta.nome} - ${planilha.nome}.csv`);
   }
 
+  // ----- ordenar e filtrar -----
+
+  // Ordena as linhas r1..r2 (colunas c1..c2) pela coluna col. Fórmulas são ajustadas
+  // como se a linha tivesse sido movida, igual ao Excel.
+  function ordenarLinhas(a, col, desc) {
+    const linhasOrd = [];
+    for (let r = a.r1; r <= a.r2; r++) linhasOrd.push({ r, v: valor(abaIdx, r, col) });
+    linhasOrd.sort((x, y) => compararOrdem(x.v, y.v, desc) || x.r - y.r);
+    const ed = [];
+    linhasOrd.forEach(({ r: origem }, i) => {
+      const destino = a.r1 + i;
+      if (origem === destino) return;
+      for (let c = a.c1; c <= a.c2; c++) ed.push({ r: destino, c, patch: copiaDeslocada(planilha.cel[chave(origem, c)] || {}, destino - origem, 0) });
+    });
+    if (ed.length) editar(ed);
+  }
+
+  function ordenar(desc) {
+    if (editando) confirmar();
+    const col = sel.c;
+    // Dentro do filtro: ordena os dados abaixo dos títulos.
+    if (filtro && col >= filtro.c1 && col <= filtro.c2 && sel.r >= filtro.r) {
+      ordenarLinhas({ r1: filtro.r + 1, r2: fimFiltro(planilha, filtro), c1: filtro.c1, c2: filtro.c2 }, col, desc);
+      setMsg("");
+      return;
+    }
+    const a = r1 === r2 && c1 === c2 ? regiaoAtual(planilha, sel.r, sel.c) : { r1, r2, c1, c2 };
+    if (a.r1 === a.r2) return setMsg("Não há dados para ordenar: selecione uma célula dentro da tabela.");
+    // Primeira linha é título se for toda texto e (estiver em negrito ou houver números/datas abaixo dela).
+    const primeira = [];
+    for (let c = a.c1; c <= a.c2; c++) primeira.push(valor(abaIdx, a.r1, c));
+    let titulo = primeira.every((v) => v === null || typeof v === "string") && primeira.some((v) => typeof v === "string");
+    if (titulo) {
+      let negrito = false, numeroAbaixo = false;
+      for (let c = a.c1; c <= a.c2; c++) if (planilha.cel[chave(a.r1, c)]?.b) negrito = true;
+      for (let r = a.r1 + 1; r <= a.r2 && !numeroAbaixo; r++) for (let c = a.c1; c <= a.c2; c++) if (typeof valor(abaIdx, r, c) === "number") numeroAbaixo = true;
+      titulo = negrito || numeroAbaixo;
+    }
+    ordenarLinhas({ ...a, r1: titulo ? a.r1 + 1 : a.r1 }, col, desc);
+    setMsg(`Ordenado por ${nomeColuna(col)} (${desc ? "Z→A" : "A→Z"}), linhas ${(titulo ? a.r1 + 1 : a.r1) + 1} a ${a.r2 + 1}${titulo ? "; a linha " + (a.r1 + 1) + " ficou como título" : ""}. Ctrl+Z desfaz.`);
+  }
+
+  function alternarFiltro() {
+    if (editando) confirmar();
+    setMenuFiltro(null);
+    if (filtro) {
+      mudarPlanilhas((pls) => pls.map((p, i) => (i === abaIdx ? { ...p, filtro: undefined } : p)));
+      return;
+    }
+    const a = r1 === r2 && c1 === c2 ? regiaoAtual(planilha, sel.r, sel.c) : { r1, r2, c1, c2 };
+    if (!planilha.cel[chave(a.r1, a.c1)]?.e && a.r1 === a.r2 && a.c1 === a.c2) return setMsg("Selecione uma célula dentro da tabela para filtrar.");
+    mudarPlanilhas((pls) => pls.map((p, i) => (i === abaIdx ? { ...p, filtro: { r: a.r1, c1: a.c1, c2: a.c2, excl: {} } } : p)));
+    setMsg("");
+  }
+
+  function abrirMenuFiltro(e, c) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (editando) confirmar();
+    const caixa = e.currentTarget.getBoundingClientRect();
+    const excl = new Set(filtro.excl?.[c] || []);
+    const fim = fimFiltro(planilha, filtro);
+    const vistos = new Map();
+    for (let r = filtro.r + 1; r <= fim; r++) {
+      const t = textoFiltro(planilha, valor, abaIdx, r, c);
+      if (!vistos.has(t)) vistos.set(t, valor(abaIdx, r, c));
+    }
+    for (const t of excl) if (!vistos.has(t)) vistos.set(t, t); // mantém valores já desmarcados
+    const itens = [...vistos.entries()].sort((x, y) => compararOrdem(x[1], y[1], false)).map(([t]) => t);
+    setMenuFiltro({
+      c, itens, busca: "",
+      marcados: new Set(itens.filter((t) => !excl.has(t))),
+      x: Math.min(caixa.left, window.innerWidth - 270), y: caixa.bottom + 2,
+    });
+  }
+
+  function aplicarFiltro(excluidos) {
+    const { c } = menuFiltro;
+    mudarPlanilhas((pls) => pls.map((p, i) => {
+      if (i !== abaIdx || !p.filtro) return p;
+      const excl = { ...p.filtro.excl };
+      if (excluidos.length) excl[c] = excluidos; else delete excl[c];
+      return { ...p, filtro: { ...p.filtro, excl } };
+    }));
+    setMenuFiltro(null);
+  }
+
   // ----- área de transferência -----
 
   function copiar(e, recortar = false) {
@@ -590,6 +778,7 @@ export default function Planilha() {
     const linhas = [];
     const brutos = [];
     for (let r = r1; r <= r2; r++) {
+      if (ocultas.has(r)) continue;
       const l = [], b = [];
       for (let c = c1; c <= c2; c++) {
         const cel = planilha.cel[chave(r, c)] || {};
@@ -748,6 +937,10 @@ export default function Planilha() {
         <button style={sBotao()} onClick={() => estrutura("r", -1)} title="Excluir linha">− Linha</button>
         <button style={sBotao()} onClick={() => estrutura("c", 1)} title="Inserir coluna à esquerda">+ Coluna</button>
         <button style={sBotao()} onClick={() => estrutura("c", -1)} title="Excluir coluna">− Coluna</button>
+        <span style={sSep} />
+        <button style={sBotao()} onClick={() => ordenar(false)} title="Ordenar de A a Z (menor para o maior) pela coluna selecionada">A→Z</button>
+        <button style={sBotao()} onClick={() => ordenar(true)} title="Ordenar de Z a A (maior para o menor) pela coluna selecionada">Z→A</button>
+        <button style={sBotao(!!filtro)} onClick={alternarFiltro} title={filtro ? "Remover filtro" : "Filtrar a tabela da célula selecionada"}>⏷ Filtro</button>
       </div>
 
       <div style={{ display: "flex", gap: 4, alignItems: "center", padding: "4px 6px", background: "#fff", borderLeft: "1px solid rgba(0,0,0,0.12)", borderRight: "1px solid rgba(0,0,0,0.12)" }}>
@@ -786,9 +979,9 @@ export default function Planilha() {
             </tr>
           </thead>
           <tbody>
-            {linhas.map((r) => (
+            {linhas.map((r) => ocultas.has(r) ? null : (
               <tr key={r}>
-                <th style={{ ...sCab, left: 0, zIndex: 1, height: ALT_LINHA, background: r >= r1 && r <= r2 ? "#e2d6b8" : sCab.background }}
+                <th style={{ ...sCab, left: 0, zIndex: 1, height: ALT_LINHA, background: r >= r1 && r <= r2 ? "#e2d6b8" : sCab.background, color: ocultas.size && filtro && r > filtro.r ? "#1f5fa8" : sCab.color }}
                   onMouseDown={(e) => { e.preventDefault(); if (editando) confirmar(); setAnc({ r: e.shiftKey ? anc.r : r, c: 0 }); setSel({ r, c: planilha.colunas - 1 }); grade.current?.focus(); }}>
                   {r + 1}
                 </th>
@@ -825,7 +1018,15 @@ export default function Planilha() {
                         color: erro ? "#c0392b" : cel?.cor || "#111", fontWeight: cel?.b ? "bold" : undefined, fontStyle: cel?.i ? "italic" : undefined,
                         textAlign: al, cursor: "cell", userSelect: "none",
                       }}>
-                      {cel ? exibir(v, fmt) : ""}
+                      {filtro && r === filtro.r && c >= filtro.c1 && c <= filtro.c2 ? (
+                        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", textAlign: al }}>{cel ? exibir(v, fmt) : ""}</span>
+                          <button onMouseDown={(e) => abrirMenuFiltro(e, c)} title="Filtrar e ordenar esta coluna"
+                            style={{ flex: "none", width: 18, height: 18, padding: 0, fontSize: 10, lineHeight: "16px", border: "1px solid #bbb", borderRadius: 3, cursor: "pointer", background: filtro.excl?.[c]?.length ? GOLD : "#fff", color: filtro.excl?.[c]?.length ? "#fff" : "#444" }}>
+                            {filtro.excl?.[c]?.length ? "⏷" : "▾"}
+                          </button>
+                        </span>
+                      ) : cel ? exibir(v, fmt) : ""}
                     </td>
                   );
                 })}
@@ -849,16 +1050,67 @@ export default function Planilha() {
         ))}
         <button style={sBotao()} onClick={adicionarAba} title="Nova planilha">＋</button>
         {pasta.planilhas.length > 1 && <button style={sBotao()} onClick={excluirAba} title="Excluir esta planilha">×</button>}
+        {ocultas.size > 0 && <span style={{ fontSize: 12, color: "#1f5fa8", marginLeft: 8 }}>Filtro ativo: {ocultas.size} linha{ocultas.size === 1 ? "" : "s"} oculta{ocultas.size === 1 ? "" : "s"}</span>}
         <span style={{ marginLeft: "auto", fontSize: 12, color: "#555" }}>
           {resumo
             ? <>Soma: <b>{exibir(resumo.soma)}</b> · Média: <b>{resumo.n ? exibir(resumo.soma / resumo.n) : "—"}</b> · Contagem: <b>{resumo.cont}</b></>
             : "Salvo automaticamente neste navegador"}
         </span>
       </div>
+      {menuFiltro && <MenuFiltro menu={menuFiltro} setMenu={setMenuFiltro} aplicar={aplicarFiltro}
+        ordenar={(desc) => { setSel({ r: filtro.r, c: menuFiltro.c }); setAnc({ r: filtro.r, c: menuFiltro.c }); ordenarLinhas({ r1: filtro.r + 1, r2: fimFiltro(planilha, filtro), c1: filtro.c1, c2: filtro.c2 }, menuFiltro.c, desc); setMenuFiltro(null); }} />}
       <p style={{ fontSize: 12, color: "#777", marginTop: 8, lineHeight: 1.5 }}>
         Fórmulas como no Excel em português: <code>=SOMA(A1:A10)</code>, <code>=MÉDIA(B2:B9)</code>, <code>=SE(C2&gt;100;"Alto";"Baixo")</code>, <code>=PROCV(…)</code>, <code>=SOMASE(…)</code>, <code>=HOJE()</code>.
-        Use <b>;</b> entre os argumentos e <b>,</b> nos decimais. Clique duplo ou F2 edita; Ctrl+D preenche para baixo; Ctrl+C/Ctrl+V copia e cola (inclusive do Excel).
+        Use <b>;</b> entre os argumentos e <b>,</b> nos decimais. A→Z / Z→A ordenam pela coluna selecionada; ⏷ Filtro mostra só as linhas escolhidas. Clique duplo ou F2 edita; Ctrl+D preenche para baixo; Ctrl+C/Ctrl+V copia e cola (inclusive do Excel).
       </p>
+    </div>
+  );
+}
+
+function MenuFiltro({ menu, setMenu, aplicar, ordenar }) {
+  const caixa = useRef(null);
+  useEffect(() => {
+    const fora = (e) => { if (!caixa.current?.contains(e.target)) setMenu(null); };
+    const esc = (e) => { if (e.key === "Escape") setMenu(null); };
+    window.addEventListener("mousedown", fora);
+    window.addEventListener("keydown", esc);
+    return () => { window.removeEventListener("mousedown", fora); window.removeEventListener("keydown", esc); };
+  }, [setMenu]);
+  const busca = menu.busca.trim().toLowerCase();
+  const visiveis = menu.itens.filter((t) => !busca || (t || "(Vazias)").toLowerCase().includes(busca));
+  const todos = visiveis.every((t) => menu.marcados.has(t));
+  const marcar = (lista, ligar) => {
+    const m = new Set(menu.marcados);
+    lista.forEach((t) => (ligar ? m.add(t) : m.delete(t)));
+    setMenu({ ...menu, marcados: m });
+  };
+  // Com busca, o OK mostra só os itens encontrados que estão marcados (como no Excel).
+  const ok = () => aplicar(menu.itens.filter((t) => !menu.marcados.has(t) || (busca && !visiveis.includes(t))));
+  const sItem = { display: "flex", alignItems: "center", gap: 6, padding: "3px 4px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
+  return (
+    <div ref={caixa} style={{ position: "fixed", left: Math.max(8, menu.x), top: menu.y, zIndex: 50, width: 260, background: "#fff", border: "1px solid rgba(0,0,0,0.2)", borderRadius: 8, boxShadow: "0 6px 24px rgba(0,0,0,0.2)", padding: 8, fontFamily: "sans-serif" }}>
+      <button style={{ ...sBotao(), width: "100%", textAlign: "left", marginBottom: 4 }} onClick={() => ordenar(false)}>A→Z  Ordenar do menor para o maior</button>
+      <button style={{ ...sBotao(), width: "100%", textAlign: "left", marginBottom: 8 }} onClick={() => ordenar(true)}>Z→A  Ordenar do maior para o menor</button>
+      <input autoFocus placeholder="Pesquisar" value={menu.busca} onChange={(e) => setMenu({ ...menu, busca: e.target.value })}
+        onKeyDown={(e) => { if (e.key === "Enter") ok(); }}
+        style={{ ...sSelect, width: "100%", boxSizing: "border-box", padding: "0 8px", marginBottom: 6 }} />
+      <div style={{ maxHeight: 220, overflowY: "auto", border: "1px solid #eee", borderRadius: 6, padding: 4 }}>
+        <label style={{ ...sItem, fontWeight: 600 }}>
+          <input type="checkbox" checked={todos} onChange={() => marcar(visiveis, !todos)} /> (Selecionar tudo)
+        </label>
+        {visiveis.map((t) => (
+          <label key={t} style={sItem} title={t || "(Vazias)"}>
+            <input type="checkbox" checked={menu.marcados.has(t)} onChange={(e) => marcar([t], e.target.checked)} />
+            {t === "" ? <i style={{ color: "#888" }}>(Vazias)</i> : t}
+          </label>
+        ))}
+        {!visiveis.length && <p style={{ fontSize: 12, color: "#888", margin: 4 }}>Nenhum valor encontrado.</p>}
+      </div>
+      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+        <button style={{ ...sBotao(), flex: 1 }} onClick={() => aplicar([])}>Limpar filtro</button>
+        <button style={{ ...sBotao(), flex: 1 }} onClick={() => setMenu(null)}>Cancelar</button>
+        <button style={{ ...sBotao(), flex: 1, background: GOLD, color: "#fff", border: "none" }} onClick={ok}>OK</button>
+      </div>
     </div>
   );
 }
