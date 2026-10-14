@@ -1,4 +1,5 @@
 import { grade, numColunas, posicao } from "./textoTabelas.js";
+import { estilosDe } from "./textoEstilos.js";
 
 // Conversão entre o HTML do editor de Texto e arquivos .docx do Word.
 
@@ -46,10 +47,12 @@ function bytesDeDataUrl(src) {
 }
 
 // Devolve o .docx como Blob (quem chama decide se grava no arquivo ou baixa).
-export async function htmlParaDocx(doc, { html, cabecalho, rodape }) {
+export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {} }) {
   const d = await import("docx");
   const parse = (h) => new DOMParser().parseFromString(`<div>${h || ""}</div>`, "text/html").body.firstChild;
   const pagina = doc.pagina || PAGINA_PADRAO;
+  const est = estilosDe(doc);
+  const alinh = (a) => d.AlignmentType[ALINHAMENTO[a] || "LEFT"];
   const [largCm] = dimensoes(pagina);
   const largUtilPx = (largCm - pagina.margens.esq - pagina.margens.dir) * CM;
 
@@ -131,6 +134,11 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape }) {
         continue;
       }
       if (tag === "IMG") { const im = imagem(filho); if (im) out.push(im); continue; }
+      if (tag === "SUP" && filho.classList.contains("nota")) {
+        const n = numeroNota.get(filho.dataset.nota);
+        if (n) out.push(new d.FootnoteReferenceRun(n));
+        continue;
+      }
       if (filho.dataset?.campo === "pagina") { out.push(new d.TextRun({ children: [d.PageNumber.CURRENT], ...estilo })); continue; }
       if (filho.dataset?.campo === "paginas") { out.push(new d.TextRun({ children: [d.PageNumber.TOTAL_PAGES], ...estilo })); continue; }
       if (tag === "A" && filho.getAttribute("href")) {
@@ -172,16 +180,18 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape }) {
   }
 
   function paragrafo(el, extra = {}) {
+    if (el.tagName === "BLOCKQUOTE" || el.closest?.("blockquote")) extra = { style: "Citacao", ...extra };
     const base = estiloRun(el, {});
     // Fonte da marca de parágrafo: define a altura de linhas em branco no Word.
     const marca = {};
     if (base.font) marca.font = base.font;
     if (base.size) marca.size = base.size;
+    const props = propsParagrafo(el);
     return new d.Paragraph({
       children: runs(el, base),
       run: Object.keys(marca).length ? marca : undefined,
       heading: TITULOS[el.tagName] ? d.HeadingLevel[TITULOS[el.tagName]] : undefined,
-      ...propsParagrafo(el),
+      ...props,
       ...extra,
     });
   }
@@ -232,10 +242,10 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape }) {
     const fecharSoltos = () => { if (soltos) { out.push(paragrafo(soltos)); soltos = null; } };
     for (const filho of no.childNodes) {
       const tag = filho.nodeType === 1 ? filho.tagName : null;
-      if (tag && BLOCO.includes(tag)) {
+      if (tag && BLOCO.includes(tag) && !filho.dataset?.sumario) {
         fecharSoltos();
         if ([...filho.children].some((c) => [...BLOCO, "UL", "OL", "TABLE"].includes(c.tagName))) out.push(...blocos(filho));
-        else out.push(paragrafo(filho, tag === "BLOCKQUOTE" ? { indent: { left: 720 } } : {}));
+        else out.push(paragrafo(filho));
       } else if (tag === "UL" || tag === "OL") {
         fecharSoltos();
         for (const li of filho.querySelectorAll(":scope > li")) {
@@ -244,6 +254,11 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape }) {
       } else if (tag === "TABLE") {
         fecharSoltos();
         out.push(tabela(filho));
+      } else if (tag === "DIV" && filho.dataset?.sumario) {
+        // Sumário: campo do Word (ele calcula os números de página ao abrir).
+        fecharSoltos();
+        temSumario = true;
+        out.push(new d.TableOfContents("Sumário", { hyperlink: true, headingStyleRange: "1-3" }));
       } else if (tag === "HR") {
         fecharSoltos();
         out.push(new d.Paragraph({ children: [new d.PageBreak()] }));
@@ -260,6 +275,12 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape }) {
 
   const [w, h] = PAPEIS[pagina.tam] || PAPEIS.A4;
   const m = pagina.margens;
+  // Notas de rodapé, numeradas na ordem em que aparecem no texto.
+  const corpo = parse(html);
+  const numeroNota = new Map();
+  corpo.querySelectorAll("sup.nota[data-nota]").forEach((s) => { if (!numeroNota.has(s.dataset.nota)) numeroNota.set(s.dataset.nota, numeroNota.size + 1); });
+  const notasDocx = {};
+  let temSumario = false;
   const rodapeFilhos = blocos(parse(rodape));
   if (doc.numPag) {
     const pagTxt = doc.numPag === "xdey"
@@ -269,17 +290,48 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape }) {
   }
   const cabFilhos = blocos(parse(cabecalho));
 
-  const titulo = (id, nome, pt) => ({
+  const titulo = (id, nome, t) => ({
     id, name: nome, basedOn: "Normal", next: "Normal", quickFormat: true,
-    run: { size: pt * 2, bold: true, color: "000000", font: FONTE_PADRAO },
-    paragraph: { spacing: { before: 240, after: 120 }, keepNext: true },
+    run: { size: t.tamanho * 2, bold: !!t.negrito, italics: !!t.italico, color: (t.cor || "#000000").replace("#", ""), font: t.fonte },
+    paragraph: { spacing: { before: t.antes * 20, after: t.depois * 20, line: 288, lineRule: d.LineRuleType.AUTO }, keepNext: true, alignment: alinh(t.alinhamento), indent: { firstLine: 0 } },
   });
+  const citacao = {
+    id: "Citacao", name: "Citação", basedOn: "Normal", next: "Normal", quickFormat: true,
+    run: { size: est.citacao.tamanho * 2, font: est.citacao.fonte, italics: !!est.citacao.italico },
+    paragraph: {
+      spacing: { before: est.citacao.antes * 20, after: est.citacao.depois * 20, line: Math.round(est.citacao.entrelinhas * 240), lineRule: d.LineRuleType.AUTO },
+      indent: { left: Math.round(est.citacao.recuoEsq * TWIP_CM), firstLine: 0 }, alignment: alinh(est.citacao.alinhamento),
+    },
+  };
+  const filhosCorpo = blocos(corpo);
+  for (const [id, n] of numeroNota) {
+    const b = blocos(parse(notas[id] || ""));
+    notasDocx[n] = { children: b.length ? b : [new d.Paragraph("")] };
+  }
   const documento = new d.Document({
     numbering: { config: [{ reference: "numerada", levels: [{ level: 0, format: d.LevelFormat.DECIMAL, text: "%1.", alignment: d.AlignmentType.LEFT, style: { paragraph: { indent: { left: 720, hanging: 360 } } } }] }] },
     styles: {
-      default: { document: { run: { font: FONTE_PADRAO, size: TAMANHO_PADRAO * 2 }, paragraph: { spacing: { line: 360, lineRule: d.LineRuleType.AUTO, after: 120 } } } },
-      paragraphStyles: [titulo("Heading1", "Heading 1", 16), titulo("Heading2", "Heading 2", 14), titulo("Heading3", "Heading 3", 12)],
+      default: { document: {
+        run: { font: est.normal.fonte, size: est.normal.tamanho * 2 },
+        paragraph: { spacing: { line: Math.round(est.normal.entrelinhas * 240), lineRule: d.LineRuleType.AUTO, before: est.normal.antes * 20, after: est.normal.depois * 20 } },
+      } },
+      paragraphStyles: [
+        // Estilo Normal com recuo e alinhamento (no "padrão do documento" o LibreOffice ignora o alinhamento).
+        {
+          id: "Normal", name: "Normal", quickFormat: true,
+          run: { font: est.normal.fonte, size: est.normal.tamanho * 2 },
+          paragraph: {
+            spacing: { line: Math.round(est.normal.entrelinhas * 240), lineRule: d.LineRuleType.AUTO, before: est.normal.antes * 20, after: est.normal.depois * 20 },
+            indent: { firstLine: Math.round((est.normal.recuo || 0) * TWIP_CM) },
+            alignment: alinh(est.normal.alinhamento),
+          },
+        },
+        // Linhas do sumário sem o recuo de 1ª linha do Normal.
+        ...[1, 2, 3].map((n) => ({ id: `TOC${n}`, name: `toc ${n}`, basedOn: "Normal", next: "Normal", paragraph: { indent: { firstLine: 0, left: (n - 1) * 240 }, alignment: d.AlignmentType.LEFT, spacing: { after: 60 } } })),
+        titulo("Heading1", "Heading 1", est.h1), titulo("Heading2", "Heading 2", est.h2), titulo("Heading3", "Heading 3", est.h3), citacao],
     },
+    footnotes: numeroNota.size ? notasDocx : undefined,
+    features: temSumario ? { updateFields: true } : undefined,
     sections: [{
       properties: {
         page: {
@@ -289,7 +341,7 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape }) {
       },
       headers: cabFilhos.length ? { default: new d.Header({ children: cabFilhos }) } : undefined,
       footers: rodapeFilhos.length ? { default: new d.Footer({ children: rodapeFilhos }) } : undefined,
-      children: (() => { const b = blocos(parse(html)); return b.length ? b : [new d.Paragraph("")]; })(),
+      children: filhosCorpo.length ? filhosCorpo : [new d.Paragraph("")],
     }],
   });
   return d.Packer.toBlob(documento);
@@ -357,6 +409,15 @@ function inlinarEstilos(orig, copia) {
   os.forEach((o, i) => {
     const c = cs[i];
     if (!c) return;
+    if (o.dataset?.notaId) { // chamada de nota de rodapé
+      const sup = document.createElement("sup");
+      sup.className = "nota";
+      sup.dataset.nota = o.dataset.notaId;
+      sup.setAttribute("contenteditable", "false");
+      sup.textContent = "•";
+      c.replaceWith(sup);
+      return;
+    }
     const st = getComputedStyle(o);
     // Continuação de célula mesclada na vertical: o docx-preview só esconde; aqui sai.
     if ((o.tagName === "TD" || o.tagName === "TH") && st.display === "none") { c.remove(); return; }
@@ -471,7 +532,7 @@ export async function docxParaHtml(buffer) {
   try {
     await renderAsync(buffer, caixa, estilos, {
       inWrapper: false, ignoreWidth: false, ignoreHeight: false, breakPages: true, ignoreLastRenderedPageBreak: true,
-      renderHeaders: true, renderFooters: true, renderFootnotes: false, renderEndnotes: false, useBase64URL: true, experimental: true,
+      renderHeaders: true, renderFooters: true, renderFootnotes: true, renderEndnotes: false, useBase64URL: true, experimental: true,
     });
     const secoes = [...caixa.querySelectorAll("section")];
     if (!secoes.length) throw new Error("Documento vazio.");
@@ -485,10 +546,22 @@ export async function docxParaHtml(buffer) {
       tam, orient: largura > altura && altura ? "paisagem" : "retrato",
       margens: { sup: pxCm(st.paddingTop) || 2.5, inf: pxCm(st.paddingBottom) || 2.5, esq: pxCm(st.paddingLeft) || 3, dir: pxCm(st.paddingRight) || 2 },
     };
+    // Notas de rodapé: chamadas no texto e notas (lista no fim da seção), na mesma ordem.
+    const notas = {};
+    for (const s of secoes) {
+      const chamadas = [...s.querySelectorAll("article [class*='footnotereference']")].filter((x) => x.querySelector("sup") || x.textContent.trim());
+      const itens = [...s.querySelectorAll(":scope > ol > li")];
+      chamadas.forEach((ch, i) => {
+        if (!itens[i]) return;
+        const id = "n" + Math.random().toString(36).slice(2, 9);
+        ch.dataset.notaId = id;
+        notas[id] = converterArea(itens[i]);
+      });
+    }
     const corpos = secoes.map((s) => converterArea(s.querySelector("article")));
     const cabecalho = converterArea(secoes[0].querySelector("header"));
     const rodape = converterArea(secoes[0].querySelector("footer"));
-    return { html: corpos.filter(Boolean).join('<hr class="quebra">') || "<p><br></p>", cabecalho, rodape, pagina };
+    return { html: corpos.filter(Boolean).join('<hr class="quebra">') || "<p><br></p>", cabecalho, rodape, pagina, notas };
   } finally {
     caixa.remove();
     estilos.remove();

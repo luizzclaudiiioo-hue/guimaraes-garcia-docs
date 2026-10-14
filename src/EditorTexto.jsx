@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { CM, PAGINA_PADRAO, dimensoes, docxParaHtml, htmlParaDocx } from "./docxConversao.js";
 import * as T from "./textoTabelas.js";
+import { ESTILOS_PADRAO, cssEstilos, estilosDe } from "./textoEstilos.js";
 import { TIPOS, arquivoLembrado, baixar, escolherArquivo, gravarNoArquivo, lembrarArquivo, recursosNaoSuportados, salvarComo, suportaArquivoLocal } from "./arquivoLocal.js";
 
 const GOLD = "#9a6e1e";
@@ -43,10 +45,15 @@ const sCampo = { ...sSelect, padding: "0 8px" };
 
 // Aparência do texto na página; o .docx gerado usa os mesmos padrões.
 const CSS_PAGINA = `
-.ed-texto { font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.5; color: #111; outline: none; }
-.ed-texto p, .ed-texto div, .ed-texto li { margin: 0 0 6pt; }
-.ed-texto h1 { font-size: 16pt; margin: 12pt 0 6pt; } .ed-texto h2 { font-size: 14pt; margin: 12pt 0 6pt; } .ed-texto h3 { font-size: 12pt; margin: 12pt 0 6pt; }
-.ed-texto blockquote { margin: 0 0 6pt 1.27cm; }
+.ed-texto { color: #111; outline: none; }
+.ed-texto sup.nota { color: #9a6e1e; cursor: pointer; font-weight: bold; padding: 0 1px; }
+.ed-notas { font-size: 10pt; line-height: 1.2; }
+.ed-notas p { margin: 0 0 2pt; text-indent: 0; }
+.sumario { border: 1px dashed #d8cfb8; border-radius: 4px; padding: 6pt 8pt; margin: 0 0 8pt; cursor: default; user-select: none; }
+.sumario .sum-titulo { font-weight: bold; font-size: 1.15em; margin-bottom: 4pt; text-align: center; }
+.sumario .sum-item { display: flex; gap: 4px; margin: 0; text-indent: 0; cursor: pointer; }
+.sumario .sum-item span.pontos { flex: 1; border-bottom: 1px dotted #999; margin-bottom: 4px; }
+.sumario .sum-n2 { padding-left: 1.2em; } .sumario .sum-n3 { padding-left: 2.4em; }
 .ed-texto table { border-collapse: collapse; } .ed-texto td, .ed-texto th { vertical-align: top; }
 .ed-texto hr { border: 0; border-top: 1px dashed #bbb; margin: 8pt 0; }
 .ed-texto img { max-width: 100%; }
@@ -79,6 +86,7 @@ export default function EditorTexto() {
   const [seletorTabela, setSeletorTabela] = useState(null); // { l, c } sob o mouse
   const selCelulas = useRef(null); // { tabela, inicio, ret }
   const [imgSel, setImgSel] = useState(null); // imagem selecionada (elemento)
+  const [painelEstilos, setPainelEstilos] = useState(false);
   const [, setTick] = useState(0); // redesenha a moldura da imagem
   const editor = useRef(null);
   const cab = useRef(null);
@@ -90,6 +98,10 @@ export default function EditorTexto() {
   const [, setVersaoArquivos] = useState(0);
   const atual = docs.find((x) => x.id === atualId) || docs[0];
   const pagina = atual.pagina || PAGINA_PADRAO;
+  const estilos = estilosDe(atual);
+  const cssDoc = cssEstilos(estilos);
+  // Notas de rodapé na ordem em que aparecem no texto.
+  const ordemNotas = [...new Set([...atual.html.matchAll(/data-nota="([^"]+)"/g)].map((x) => x[1]))];
   const [largCm, altCm] = dimensoes(pagina);
   const m = pagina.margens;
   const alturaUtil = (altCm - m.sup - m.inf) * CM;
@@ -117,6 +129,7 @@ export default function EditorTexto() {
   useEffect(() => {
     if (editor.current) {
       editor.current.innerHTML = atual.html;
+      renumerarNotas();
       // O navegador normaliza o HTML; guardar a versão normalizada evita "alteração" falsa.
       if (editor.current.innerHTML !== atual.html) mudarDoc({ html: editor.current.innerHTML }, false);
     }
@@ -177,6 +190,7 @@ export default function EditorTexto() {
         }
       }
       quebrasRef.current = lista;
+      atualizarSumarios(lista);
       setQuebras((a) => (a.length === lista.length && a.every((v, i) => Math.abs(v - lista[i]) < 1) ? a : lista));
     });
   }
@@ -194,6 +208,7 @@ export default function EditorTexto() {
   const htmlLimpo = () => editor.current.innerHTML.replace(/ data-sel="1"/g, "");
 
   function salvarHtml() {
+    renumerarNotas();
     mudarDoc({ html: htmlLimpo() });
     medirPaginas();
   }
@@ -248,6 +263,85 @@ export default function EditorTexto() {
     const lista = resto.length ? resto : [novoDoc()];
     setDocs(lista);
     setAtualId(lista[0].id);
+  }
+
+  // ----- notas de rodapé -----
+
+  function renumerarNotas() {
+    editor.current?.querySelectorAll("sup.nota").forEach((s, i) => { if (s.textContent !== String(i + 1)) s.textContent = i + 1; });
+  }
+
+  function inserirNota() {
+    const id = "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    const s = document.getSelection();
+    if (!s.rangeCount || !editor.current.contains(s.anchorNode)) {
+      // Sem cursor no texto: põe a nota no fim do documento.
+      const r = document.createRange();
+      r.selectNodeContents(editor.current.lastElementChild || editor.current);
+      r.collapse(false);
+      s.removeAllRanges();
+      s.addRange(r);
+    }
+    setDocs((ds) => ds.map((x) => (x.id === atualId ? { ...x, notas: { ...(x.notas || {}), [id]: "<p><br></p>" }, alterado: true } : x)));
+    // Inserção direta no ponto do cursor (o insertHTML do Chrome joga elementos não editáveis
+    // para fora do parágrafo quando o cursor está no fim da linha).
+    const r = s.getRangeAt(0);
+    r.deleteContents();
+    const sup = document.createElement("sup");
+    sup.className = "nota";
+    sup.dataset.nota = id;
+    sup.setAttribute("contenteditable", "false");
+    sup.textContent = "0";
+    const depois = document.createTextNode("\u200b"); // permite pôr o cursor logo após a chamada
+    r.insertNode(depois);
+    r.insertNode(sup);
+    // Desenha o campo da nota já, para o cursor ir para ele antes da próxima tecla.
+    flushSync(() => salvarHtml());
+    const campo = document.querySelector(`[data-nota-texto="${id}"]`);
+    if (campo) {
+      campo.focus();
+      const r = document.createRange();
+      r.selectNodeContents(campo);
+      r.collapse(false);
+      document.getSelection().removeAllRanges();
+      document.getSelection().addRange(r);
+    }
+  }
+
+  function mudarNota(id, html) {
+    setDocs((ds) => ds.map((x) => (x.id === atualId ? { ...x, notas: { ...(x.notas || {}), [id]: html }, alterado: true } : x)));
+  }
+
+  // ----- sumário -----
+
+  function atualizarSumarios(quebrasAtuais = quebrasRef.current) {
+    const ed = editor.current;
+    const sumarios = ed?.querySelectorAll("[data-sumario]");
+    if (!sumarios?.length) return;
+    const titulos = [...ed.querySelectorAll("h1,h2,h3")].filter((h) => !h.closest("[data-sumario]") && h.textContent.trim());
+    const itens = titulos.map((h, i) => {
+      const pag = quebrasAtuais.filter((q) => q <= h.offsetTop).length + 1;
+      return `<div class="sum-item sum-n${h.tagName[1]}" data-alvo="${i}"><span>${esc(h.textContent.trim())}</span><span class="pontos"></span><span>${pag}</span></div>`;
+    }).join("") || '<div class="sum-item"><i>Use os estilos Título 1, 2 e 3 para montar o sumário.</i></div>';
+    const html = `<div class="sum-titulo">Sumário</div>${itens}`;
+    sumarios.forEach((s) => { if (s.innerHTML !== html) s.innerHTML = html; });
+  }
+
+  function inserirSumario() {
+    cmd("insertHTML", '<div class="sumario" data-sumario="1" contenteditable="false"></div><p><br></p>');
+    atualizarSumarios();
+    salvarHtml();
+  }
+
+  function cliqueEditor(e) {
+    const item = e.target.closest?.("[data-alvo]");
+    if (item) {
+      const titulos = [...editor.current.querySelectorAll("h1,h2,h3")].filter((h) => !h.closest("[data-sumario]") && h.textContent.trim());
+      titulos[Number(item.dataset.alvo)]?.scrollIntoView({ block: "center", behavior: "smooth" });
+      return;
+    }
+    const nota = e.target.closest?.("sup.nota");
+    if (nota) document.querySelector(`[data-nota-texto="${nota.dataset.nota}"]`)?.focus();
   }
 
   // ----- imagens -----
@@ -488,7 +582,7 @@ export default function EditorTexto() {
           conv = { html: (await mammoth.convertToHtml({ arrayBuffer: buf })).value };
         }
         const avisos = handle ? await recursosNaoSuportados(buf, "docx") : [];
-        novo = criar(nome, { html: sanitizar(conv.html || "<p><br></p>"), cabecalho: sanitizar(conv.cabecalho || ""), rodape: sanitizar(conv.rodape || ""), pagina: conv.pagina || PAGINA_PADRAO, ...vinculo, avisos });
+        novo = criar(nome, { html: sanitizar(conv.html || "<p><br></p>"), cabecalho: sanitizar(conv.cabecalho || ""), rodape: sanitizar(conv.rodape || ""), pagina: conv.pagina || PAGINA_PADRAO, notas: Object.fromEntries(Object.entries(conv.notas || {}).map(([k, v]) => [k, sanitizar(v)])), ...vinculo, avisos });
       } else if (/\.(txt|md)$/i.test(f.name)) {
         const t = await f.text();
         novo = criar(nome, { html: t.split(/\r?\n/).map((l) => `<p>${esc(l) || "<br>"}</p>`).join(""), ...vinculo });
@@ -515,7 +609,8 @@ export default function EditorTexto() {
       if (!img.getAttribute("width")) img.setAttribute("width", img.clientWidth || img.naturalWidth || 300);
       if (!img.getAttribute("height")) img.setAttribute("height", img.clientHeight || img.naturalHeight || 200);
     });
-    const conteudo = { html: htmlLimpo(), cabecalho: cab.current.innerHTML, rodape: rod.current.innerHTML };
+    renumerarNotas();
+    const conteudo = { html: htmlLimpo(), cabecalho: cab.current.innerHTML, rodape: rod.current.innerHTML, notas: atual.notas || {} };
     const doc = atual;
     const nomeBase = (doc.nome || "documento").replace(/\.docx$/i, "");
     try {
@@ -563,7 +658,8 @@ export default function EditorTexto() {
     w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(atual.nome)}</title>
       <style>
         @page { size: ${largCm}cm ${altCm}cm; margin: ${m.sup}cm ${m.dir}cm ${m.inf}cm ${m.esq}cm; ${numero} }
-        body { margin: 0; } ${CSS_PAGINA}
+        body { margin: 0; } ${CSS_PAGINA} ${cssDoc}
+        .sumario { border: 0; padding: 0; } .ed-notas { margin-top: 18pt; border-top: 1px solid #000; padding-top: 4pt; }
         table.moldura { width: 100%; border-collapse: collapse; } table.moldura > * > tr > td { padding: 0; }
         .ed-area { border: 0; padding: 0; } .ed-area:empty { display: none; }
         hr { page-break-after: always; break-after: page; border: 0; margin: 0; }
@@ -571,7 +667,7 @@ export default function EditorTexto() {
       <table class="moldura">
         ${cab.current.innerHTML ? `<thead><tr><td><div class="ed-area" style="padding-bottom:12pt">${cab.current.innerHTML}</div></td></tr></thead>` : ""}
         ${rod.current.innerHTML ? `<tfoot><tr><td><div class="ed-area" style="padding-top:12pt">${rod.current.innerHTML}</div></td></tr></tfoot>` : ""}
-        <tbody><tr><td><div class="ed-texto">${editor.current.innerHTML}</div></td></tr></tbody>
+        <tbody><tr><td><div class="ed-texto">${htmlLimpo()}</div>${ordemNotas.length ? `<div class="ed-notas">${ordemNotas.map((id, i) => `<div style="display:flex;gap:6px"><sup>${i + 1}</sup><div>${atual.notas?.[id] || ""}</div></div>`).join("")}</div>` : ""}</td></tr></tbody>
       </table></body></html>`);
     w.document.close();
     w.focus();
@@ -684,7 +780,7 @@ export default function EditorTexto() {
 
   return (
     <div style={{ fontFamily: "sans-serif" }} onKeyDown={teclas}>
-      <style>{CSS_PAGINA + CSS_TELA}</style>
+      <style>{CSS_PAGINA + cssDoc + CSS_TELA}</style>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
         <select value={atualId} onChange={(e) => trocar(e.target.value)} style={{ ...sSelect, maxWidth: 220 }} title="Documentos salvos neste navegador">
           {docs.map((x) => <option key={x.id} value={x.id}>{x.nome || "(sem nome)"}</option>)}
@@ -787,6 +883,9 @@ export default function EditorTexto() {
         <button style={sBotao()} onClick={() => arquivoImg.current.click()} title="Inserir imagem">🖼 Imagem</button>
         <button style={sBotao()} onClick={inserirLink} title="Inserir link">🔗</button>
         <button style={sBotao()} onClick={() => cmd("insertHTML", "<hr><p><br></p>")} title="Quebra de página">⤓ Quebra</button>
+        <button style={sBotao()} onClick={inserirNota} title="Inserir nota de rodapé no ponto do cursor">¹ Nota</button>
+        <button style={sBotao()} onClick={inserirSumario} title="Inserir sumário automático (usa os Títulos 1, 2 e 3)">≣ Sumário</button>
+        <button style={sBotao(painelEstilos)} onClick={() => setPainelEstilos((x) => !x)} title="Editar os estilos Normal, Títulos e Citação">Aa Estilos</button>
         <button style={sBotao()} onClick={() => cmd("removeFormat")} title="Limpar formatação">⌫ Formato</button>
         <span style={sSep} />
         <button style={sBotao(!!busca)} onClick={() => (busca ? setBusca(null) : abrirBusca(true))} title="Localizar e substituir (Ctrl+L / Ctrl+H)">🔍 Localizar</button>
@@ -812,6 +911,8 @@ export default function EditorTexto() {
           <button style={{ ...sBotao(), marginLeft: "auto" }} onClick={() => setBusca(null)} title="Fechar (Esc)">×</button>
         </div>
       )}
+
+      {painelEstilos && <PainelEstilos estilos={estilos} mudar={(e) => mudarDoc({ estilos: e })} />}
 
       {painelPagina && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", padding: 10, background: "#fbf8f1", border: "1px solid rgba(0,0,0,0.12)", borderTop: 0, fontSize: 13 }}>
@@ -856,8 +957,19 @@ export default function EditorTexto() {
           </div>
           <div style={{ position: "relative", flex: 1 }}>
             <div ref={editor} className="ed-texto" contentEditable suppressContentEditableWarning spellCheck lang="pt-BR"
-              onInput={salvarHtml} onMouseDown={mouseDownEditor} onMouseMove={mouseMoveEditor} onContextMenu={menuContexto}
+              onInput={salvarHtml} onClick={cliqueEditor} onMouseDown={mouseDownEditor} onMouseMove={mouseMoveEditor} onContextMenu={menuContexto}
               style={{ minHeight: alturaUtil, position: "relative" }} />
+            {ordemNotas.length > 0 && (
+              <div className="ed-notas" style={{ marginTop: 12, paddingTop: 4, borderTop: "1px solid #888", width: "100%", fontFamily: `'${estilos.normal.fonte}', serif` }}>
+                {ordemNotas.map((id, i) => (
+                  <div key={id} style={{ display: "flex", gap: 6, alignItems: "baseline", marginBottom: 2 }}>
+                    <sup style={{ color: GOLD, fontWeight: "bold", cursor: "pointer" }} title="Ir para a chamada da nota"
+                      onClick={() => editor.current.querySelector(`sup.nota[data-nota="${id}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" })}>{i + 1}</sup>
+                    <NotaTexto id={id} html={atual.notas?.[id] || ""} docId={atual.id} mudar={mudarNota} />
+                  </div>
+                ))}
+              </div>
+            )}
             {imgSel?.isConnected && <MolduraImagem img={imgSel} base={editor.current} redimensionar={redimensionarImagem} posicionar={posicionarImagem} original={tamanhoOriginal} excluir={excluirImagem} />}
             {quebras.map((y, i) => (
               <div key={i} style={{ position: "absolute", left: `-${m.esq}cm`, right: `-${m.dir}cm`, top: y, borderTop: "1px dashed #c9bfa8", pointerEvents: "none" }}>
@@ -954,6 +1066,61 @@ function MolduraImagem({ img, base, redimensionar, posicionar, original, excluir
         <button style={bt()} onClick={original} title="Voltar ao tamanho original (limitado à largura da página)">Tamanho original</button>
         <button style={bt()} onClick={excluir} title="Excluir imagem (Delete)">🗑</button>
         <span style={{ fontSize: 11, color: "#888", alignSelf: "center", padding: "0 4px" }}>{Math.round(r.width)}×{Math.round(r.height)}</span>
+      </div>
+    </div>
+  );
+}
+
+// Texto de uma nota de rodapé (editável; o HTML só é recarregado ao trocar de nota/documento).
+function NotaTexto({ id, html, docId, mudar }) {
+  const ref = useRef(null);
+  useEffect(() => { if (ref.current && ref.current.innerHTML !== html) ref.current.innerHTML = html || "<p><br></p>"; }, [id, docId]);
+  return <div ref={ref} data-nota-texto={id} contentEditable suppressContentEditableWarning spellCheck lang="pt-BR"
+    onInput={() => mudar(id, ref.current.innerHTML)} style={{ flex: 1, outline: "none", minHeight: "1.2em" }} />;
+}
+
+const FONTES_ESTILO = ["Times New Roman", "Arial", "Calibri", "Georgia", "Verdana", "Courier New", "Arial Nova Cond"];
+function PainelEstilos({ estilos, mudar }) {
+  const campo = { height: 26, border: "1px solid rgba(0,0,0,0.15)", borderRadius: 5, fontSize: 12, padding: "0 4px", background: "#fff" };
+  const set = (k, prop, v) => mudar({ ...estilos, [k]: { ...estilos[k], [prop]: v } });
+  const num = (k, prop, passo = 1, w = 52) => <input type="number" step={passo} min="0" value={estilos[k][prop] ?? 0} style={{ ...campo, width: w }} onChange={(e) => set(k, prop, Number(e.target.value) || 0)} />;
+  const sel = (k, prop, opcoes) => (
+    <select value={estilos[k][prop]} style={campo} onChange={(e) => set(k, prop, e.target.value)}>
+      {opcoes.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+    </select>
+  );
+  const alin = [["left", "Esquerda"], ["center", "Centro"], ["right", "Direita"], ["justify", "Justificado"]];
+  const th = { textAlign: "left", fontWeight: 500, color: "#666", padding: "2px 6px", fontSize: 11 };
+  const td = { padding: "3px 6px", whiteSpace: "nowrap" };
+  return (
+    <div style={{ padding: 10, background: "#fbf8f1", border: "1px solid rgba(0,0,0,0.12)", borderTop: 0, fontSize: 12, overflowX: "auto" }}>
+      <table style={{ borderCollapse: "collapse" }}>
+        <thead><tr>
+          <th style={th}>Estilo</th><th style={th}>Fonte</th><th style={th}>Tam. (pt)</th><th style={th}>Alinhamento</th>
+          <th style={th}>Antes (pt)</th><th style={th}>Depois (pt)</th><th style={th}>Entrelinhas</th><th style={th}>Recuo (cm)</th><th style={th}>Negrito / Itálico</th>
+        </tr></thead>
+        <tbody>
+          {Object.keys(ESTILOS_PADRAO).map((k) => (
+            <tr key={k} style={{ borderTop: "1px solid #eee" }}>
+              <td style={{ ...td, fontWeight: 600 }}>{estilos[k].nome}</td>
+              <td style={td}>{sel(k, "fonte", FONTES_ESTILO.map((f) => [f, f]))}</td>
+              <td style={td}>{num(k, "tamanho", 0.5)}</td>
+              <td style={td}>{sel(k, "alinhamento", alin)}</td>
+              <td style={td}>{num(k, "antes")}</td>
+              <td style={td}>{num(k, "depois")}</td>
+              <td style={td}>{"entrelinhas" in estilos[k] ? sel(k, "entrelinhas", [[1, "1,0"], [1.15, "1,15"], [1.5, "1,5"], [2, "2,0"]].map(([v, t]) => [v, t])) : "—"}</td>
+              <td style={td}>{k === "normal" ? <>1ª linha {num(k, "recuo", 0.25)}</> : k === "citacao" ? <>esquerda {num(k, "recuoEsq", 0.25)}</> : "—"}</td>
+              <td style={td}>
+                {"negrito" in estilos[k] && <label><input type="checkbox" checked={!!estilos[k].negrito} onChange={(e) => set(k, "negrito", e.target.checked)} /> N </label>}
+                <label><input type="checkbox" checked={!!estilos[k].italico} onChange={(e) => set(k, "italico", e.target.checked)} /> I</label>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
+        <button style={{ ...campo, cursor: "pointer", padding: "0 10px" }} onClick={() => mudar(undefined)}>Restaurar padrão</button>
+        <span style={{ color: "#777" }}>Os estilos valem para o documento todo (na tela, na impressão e no Word). Formatação aplicada direto num trecho continua valendo por cima do estilo.</span>
       </div>
     </div>
   );
