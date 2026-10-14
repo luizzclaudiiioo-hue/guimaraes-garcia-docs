@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const JSZip = require('jszip');
 
 const GITHUB_USER = 'luizzclaudiiioo-hue';
@@ -47,6 +49,11 @@ function valorExtenso(valor) {
 }
 
 async function fetchTemplate(filename) {
+  try {
+    return fs.readFileSync(path.join(process.cwd(), 'templates', filename));
+  } catch (e) {
+    // Arquivo local indisponível: busca no GitHub
+  }
   const url = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}/templates/${filename}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Template not found: ${filename} (${res.status})`);
