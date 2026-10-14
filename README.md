@@ -33,9 +33,18 @@ Além do gerador de documentos e das publicações, o app tem um editor de texto
   margens ajustáveis; cabeçalho, rodapé e número de página ("Página X de Y");
   marcação de onde cada página termina; entrelinhas, espaço depois do parágrafo e
   recuo da primeira linha; negrito, itálico, fontes, cores, títulos, listas,
-  tabelas, imagens e links; localizar e substituir (Ctrl+L / Ctrl+H).
-  Abre `.docx` mantendo fontes, espaçamentos, numeração, cabeçalho, rodapé e
-  imagens; salva em Word (`.docx`) e imprime ou gera PDF.
+  links e localizar e substituir (Ctrl+L / Ctrl+H).
+  - **Tabelas**: seletor de tamanho, menu do botão direito (inserir/excluir linhas
+    e colunas, mesclar arrastando, dividir, bordas, sombreamento), largura das
+    colunas arrastando, Tab entre células.
+  - **Imagens**: alças para redimensionar, em linha, centralizada ou com texto ao redor.
+  - **Notas de rodapé**, **estilos editáveis** (Normal, Títulos, Citação) e
+    **sumário automático**.
+  - **Comentários** em balões ao lado da página (responder, resolver, excluir) e
+    **controle de alterações** com autor e data (aceitar/rejeitar uma ou todas).
+  Abre `.docx` mantendo fontes, espaçamentos, numeração, cabeçalho, rodapé,
+  imagens, tabelas, notas, comentários e alterações; salva em Word (`.docx`) e
+  imprime ou gera PDF.
 
 **Abrir e salvar no mesmo arquivo:** no Chrome e no Edge (computador), "📂 Abrir"
 liga o documento ao arquivo escolhido, e "💾 Salvar" (Ctrl+S) grava
@@ -47,4 +56,5 @@ de gravar por cima. Em outros navegadores, "Salvar" baixa um arquivo novo.
 O conteúdo também fica guardado automaticamente no navegador de quem usa (não vai
 para o servidor). Código: `src/arquivoLocal.js`.
 
-A conversão de/para `.docx` fica em `src/docxConversao.js`.
+A conversão de/para `.docx` fica em `src/docxConversao.js`; tabelas, estilos e
+revisão em `src/textoTabelas.js`, `src/textoEstilos.js` e `src/textoRevisao.js`.

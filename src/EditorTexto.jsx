@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import { CM, PAGINA_PADRAO, dimensoes, docxParaHtml, htmlParaDocx } from "./docxConversao.js";
 import * as T from "./textoTabelas.js";
 import { ESTILOS_PADRAO, cssEstilos, estilosDe } from "./textoEstilos.js";
+import * as R from "./textoRevisao.js";
 import { TIPOS, arquivoLembrado, baixar, escolherArquivo, gravarNoArquivo, lembrarArquivo, recursosNaoSuportados, salvarComo, suportaArquivoLocal } from "./arquivoLocal.js";
 
 const GOLD = "#9a6e1e";
@@ -46,6 +47,7 @@ const sCampo = { ...sSelect, padding: "0 8px" };
 // Aparência do texto na página; o .docx gerado usa os mesmos padrões.
 const CSS_PAGINA = `
 .ed-texto { color: #111; outline: none; }
+.ed-texto del.rev { display: none; } .ed-texto ins.rev { text-decoration: none; }
 .ed-texto sup.nota { color: #9a6e1e; cursor: pointer; font-weight: bold; padding: 0 1px; }
 .ed-notas { font-size: 10pt; line-height: 1.2; }
 .ed-notas p { margin: 0 0 2pt; text-indent: 0; }
@@ -68,6 +70,11 @@ const CSS_TELA = `
 .ed-texto td[data-sel], .ed-texto th[data-sel] { background-image: linear-gradient(rgba(60,110,200,0.22), rgba(60,110,200,0.22)) !important; }
 .ed-texto td, .ed-texto th { outline: 1px dotted #d6d0c2; outline-offset: -1px; }
 .ed-texto table { margin-bottom: 6pt; }
+.ed-texto del.rev { display: inline; text-decoration: line-through; }
+.ed-texto ins.rev { text-decoration: underline; }
+.ed-texto.sem-marcas del.rev { display: none; }
+.ed-texto.sem-marcas ins.rev { text-decoration: none; color: inherit !important; }
+.ed-texto span.coment { background: rgba(255, 213, 79, 0.35); border-bottom: 2px solid #f0b400; }
 `;
 
 export default function EditorTexto() {
@@ -87,6 +94,13 @@ export default function EditorTexto() {
   const selCelulas = useRef(null); // { tabela, inicio, ret }
   const [imgSel, setImgSel] = useState(null); // imagem selecionada (elemento)
   const [painelEstilos, setPainelEstilos] = useState(false);
+  const [autor, setAutor] = useState(() => ler("editorTexto.autor", ""));
+  const [mostrarMarcas, setMostrarMarcas] = useState(true);
+  const [comAtivo, setComAtivo] = useState(null); // comentário destacado
+  const [comNovo, setComNovo] = useState(null); // comentário recém-criado (abre para escrever)
+  const [menuRevisao, setMenuRevisao] = useState(false);
+  const pagRef = useRef(null);
+  const desfazerRev = useRef([]); // desfazer próprio enquanto o controle de alterações está ligado
   const [, setTick] = useState(0); // redesenha a moldura da imagem
   const editor = useRef(null);
   const cab = useRef(null);
@@ -101,6 +115,12 @@ export default function EditorTexto() {
   const estilos = estilosDe(atual);
   const cssDoc = cssEstilos(estilos);
   // Notas de rodapé na ordem em que aparecem no texto.
+  const autoresRev = [...new Set([...atual.html.matchAll(/data-autor="([^"]*)"/g)].map((x) => x[1]))];
+  const comentarios = atual.comentarios || {};
+  const resolvidos = Object.entries(comentarios).filter(([, c]) => c.resolvido).map(([id]) => id);
+  const cssRevisao = R.cssAutores(autoresRev)
+    + resolvidos.map((id) => `.ed-texto span.coment[data-c="${id}"] { background: none; border-bottom: 1px dotted #ccc; }`).join("")
+    + (comAtivo ? `.ed-texto span.coment[data-c="${comAtivo}"] { background: rgba(255, 193, 7, 0.75); }` : "");
   const ordemNotas = [...new Set([...atual.html.matchAll(/data-nota="([^"]+)"/g)].map((x) => x[1]))];
   const [largCm, altCm] = dimensoes(pagina);
   const m = pagina.margens;
@@ -263,6 +283,95 @@ export default function EditorTexto() {
     const lista = resto.length ? resto : [novoDoc()];
     setDocs(lista);
     setAtualId(lista[0].id);
+  }
+
+  // ----- revisão: autor, controle de alterações, comentários -----
+
+  function garantirAutor() {
+    if (autor) return autor;
+    const nome = prompt("Seu nome (aparece nos comentários e nas alterações):", "")?.trim();
+    if (!nome) return null;
+    gravar("editorTexto.autor", nome);
+    setAutor(nome);
+    return nome;
+  }
+
+  // O ouvinte é registrado uma vez; por isso lê o estado atual por esta referência.
+  const refsRev = useRef({});
+  refsRev.current = { controlar: !!atual.controlar, autor, salvar: salvarHtml, desfazer: desfazerControle };
+  useEffect(() => {
+    const ed = editor.current;
+    const antes = (e) => {
+      const { controlar, autor: nome } = refsRev.current;
+      if (!controlar || !nome) return;
+      if (e.inputType === "historyUndo") { e.preventDefault(); return refsRev.current.desfazer(); }
+      const foto = ed.innerHTML;
+      if (R.tratarEntrada(e, nome)) {
+        desfazerRev.current.push(foto);
+        if (desfazerRev.current.length > 200) desfazerRev.current.shift();
+        refsRev.current.salvar();
+      }
+    };
+    ed.addEventListener("beforeinput", antes);
+    return () => ed.removeEventListener("beforeinput", antes);
+  }, []);
+
+  function desfazerControle() {
+    const foto = desfazerRev.current.pop();
+    if (foto === undefined) return;
+    editor.current.innerHTML = foto;
+    salvarHtml();
+  }
+
+  function alternarControle() {
+    if (!atual.controlar && !garantirAutor()) return;
+    mudarDoc({ controlar: !atual.controlar }, false);
+    desfazerRev.current = [];
+    setMsg(!atual.controlar ? "Controle de alterações ligado: o que você incluir ou excluir fica marcado com seu nome." : "Controle de alterações desligado.");
+  }
+
+  function revisar(el, aceitarIt) {
+    if (!el?.isConnected) return;
+    if (aceitarIt) R.aceitar(el); else R.rejeitar(el);
+    salvarHtml();
+  }
+
+  function revisarTodas(aceitarIt) {
+    setMenuRevisao(false);
+    const lista = [...editor.current.querySelectorAll("ins.rev, del.rev")];
+    if (!lista.length) return setMsg("Não há alterações marcadas.");
+    if (!confirm(`${aceitarIt ? "Aceitar" : "Rejeitar"} todas as ${lista.length} alterações?`)) return;
+    lista.forEach((el) => (aceitarIt ? R.aceitar(el) : R.rejeitar(el)));
+    salvarHtml();
+  }
+
+  function comentar() {
+    const s = document.getSelection();
+    if (!s.rangeCount || s.isCollapsed || !editor.current.contains(s.anchorNode)) return setMsg("Selecione o trecho que deseja comentar.");
+    const nome = garantirAutor();
+    if (!nome) return;
+    const id = "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    R.envolverIntervalo(s.getRangeAt(0), () => { const sp = document.createElement("span"); sp.className = "coment"; sp.dataset.c = id; return sp; });
+    s.removeAllRanges();
+    setDocs((ds) => ds.map((x) => (x.id === atualId ? { ...x, comentarios: { ...(x.comentarios || {}), [id]: { autor: nome, data: new Date().toISOString(), texto: "" } }, alterado: true } : x)));
+    setComNovo(id);
+    setComAtivo(id);
+    salvarHtml();
+  }
+
+  function mudarComentario(id, patch) {
+    setDocs((ds) => ds.map((x) => (x.id === atualId ? { ...x, comentarios: { ...(x.comentarios || {}), [id]: { ...(x.comentarios || {})[id], ...patch } }, alterado: true } : x)));
+  }
+
+  function excluirComentario(id) {
+    editor.current.querySelectorAll(`span.coment[data-c="${id}"]`).forEach(R.desembrulhar);
+    setDocs((ds) => ds.map((x) => {
+      if (x.id !== atualId) return x;
+      const c = { ...(x.comentarios || {}) };
+      delete c[id];
+      return { ...x, comentarios: c, alterado: true };
+    }));
+    salvarHtml();
   }
 
   // ----- notas de rodapé -----
@@ -582,7 +691,7 @@ export default function EditorTexto() {
           conv = { html: (await mammoth.convertToHtml({ arrayBuffer: buf })).value };
         }
         const avisos = handle ? await recursosNaoSuportados(buf, "docx") : [];
-        novo = criar(nome, { html: sanitizar(conv.html || "<p><br></p>"), cabecalho: sanitizar(conv.cabecalho || ""), rodape: sanitizar(conv.rodape || ""), pagina: conv.pagina || PAGINA_PADRAO, notas: Object.fromEntries(Object.entries(conv.notas || {}).map(([k, v]) => [k, sanitizar(v)])), ...vinculo, avisos });
+        novo = criar(nome, { html: sanitizar(conv.html || "<p><br></p>"), cabecalho: sanitizar(conv.cabecalho || ""), rodape: sanitizar(conv.rodape || ""), pagina: conv.pagina || PAGINA_PADRAO, comentarios: conv.comentarios || {}, notas: Object.fromEntries(Object.entries(conv.notas || {}).map(([k, v]) => [k, sanitizar(v)])), ...vinculo, avisos });
       } else if (/\.(txt|md)$/i.test(f.name)) {
         const t = await f.text();
         novo = criar(nome, { html: t.split(/\r?\n/).map((l) => `<p>${esc(l) || "<br>"}</p>`).join(""), ...vinculo });
@@ -610,7 +719,7 @@ export default function EditorTexto() {
       if (!img.getAttribute("height")) img.setAttribute("height", img.clientHeight || img.naturalHeight || 200);
     });
     renumerarNotas();
-    const conteudo = { html: htmlLimpo(), cabecalho: cab.current.innerHTML, rodape: rod.current.innerHTML, notas: atual.notas || {} };
+    const conteudo = { html: htmlLimpo(), cabecalho: cab.current.innerHTML, rodape: rod.current.innerHTML, notas: atual.notas || {}, comentarios: atual.comentarios || {} };
     const doc = atual;
     const nomeBase = (doc.nome || "documento").replace(/\.docx$/i, "");
     try {
@@ -771,6 +880,7 @@ export default function EditorTexto() {
     if (k === "p") { e.preventDefault(); imprimir(); }
     if (k === "l" || k === "f") { e.preventDefault(); abrirBusca(false); }
     if (k === "h") { e.preventDefault(); abrirBusca(true); }
+    if (k === "z" && !e.shiftKey && atual.controlar && editor.current?.contains(e.target)) { e.preventDefault(); desfazerControle(); }
   }
 
   const arquivoAtual = atual.arquivo && (arquivos.current.get(atual.id)?.name || atual.arquivo);
@@ -780,7 +890,7 @@ export default function EditorTexto() {
 
   return (
     <div style={{ fontFamily: "sans-serif" }} onKeyDown={teclas}>
-      <style>{CSS_PAGINA + cssDoc + CSS_TELA}</style>
+      <style>{CSS_PAGINA + cssDoc + CSS_TELA + cssRevisao}</style>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
         <select value={atualId} onChange={(e) => trocar(e.target.value)} style={{ ...sSelect, maxWidth: 220 }} title="Documentos salvos neste navegador">
           {docs.map((x) => <option key={x.id} value={x.id}>{x.nome || "(sem nome)"}</option>)}
@@ -886,6 +996,23 @@ export default function EditorTexto() {
         <button style={sBotao()} onClick={inserirNota} title="Inserir nota de rodapé no ponto do cursor">¹ Nota</button>
         <button style={sBotao()} onClick={inserirSumario} title="Inserir sumário automático (usa os Títulos 1, 2 e 3)">≣ Sumário</button>
         <button style={sBotao(painelEstilos)} onClick={() => setPainelEstilos((x) => !x)} title="Editar os estilos Normal, Títulos e Citação">Aa Estilos</button>
+        <span style={sSep} />
+        <button style={sBotao()} onClick={comentar} title="Comentar o trecho selecionado">💬 Comentar</button>
+        <button style={{ ...sBotao(atual.controlar), ...(atual.controlar ? { border: "1px solid #b0471b", color: "#b0471b" } : {}) }} onClick={alternarControle}
+          title="Controlar alterações: inclusões e exclusões ficam marcadas com o seu nome">✎ Controlar alterações{atual.controlar ? ": ligado" : ""}</button>
+        <span style={{ position: "relative" }}>
+          <button style={sBotao(menuRevisao)} onClick={() => setMenuRevisao((x) => !x)} title="Aceitar ou rejeitar alterações e mostrar/ocultar marcações">Revisão ▾</button>
+          {menuRevisao && (
+            <div style={{ position: "absolute", top: 34, right: 0, zIndex: 20, background: "#fff", border: "1px solid #ccc", borderRadius: 6, padding: 6, boxShadow: "0 4px 16px rgba(0,0,0,0.15)", display: "flex", flexDirection: "column", gap: 4, minWidth: 230 }}>
+              <button style={sBotao()} onClick={() => revisarTodas(true)}>✓ Aceitar todas as alterações</button>
+              <button style={sBotao()} onClick={() => revisarTodas(false)}>✕ Rejeitar todas as alterações</button>
+              <label style={{ fontSize: 13, display: "flex", gap: 6, alignItems: "center", padding: "4px 2px" }}>
+                <input type="checkbox" checked={mostrarMarcas} onChange={(e) => setMostrarMarcas(e.target.checked)} /> Mostrar marcações
+              </label>
+              <button style={sBotao()} onClick={() => { setMenuRevisao(false); const n = prompt("Seu nome (aparece nos comentários e nas alterações):", autor)?.trim(); if (n) { gravar("editorTexto.autor", n); setAutor(n); } }}>Meu nome: {autor || "(não definido)"}</button>
+            </div>
+          )}
+        </span>
         <button style={sBotao()} onClick={() => cmd("removeFormat")} title="Limpar formatação">⌫ Formato</button>
         <span style={sSep} />
         <button style={sBotao(!!busca)} onClick={() => (busca ? setBusca(null) : abrirBusca(true))} title="Localizar e substituir (Ctrl+L / Ctrl+H)">🔍 Localizar</button>
@@ -949,14 +1076,14 @@ export default function EditorTexto() {
         </div>
       )}
 
-      <div style={{ background: "#e9e6df", border: "1px solid rgba(0,0,0,0.12)", borderTop: 0, borderRadius: "0 0 10px 10px", padding: "24px 12px", overflowX: "auto" }}>
-        <div style={{ position: "relative", background: "#fff", width: `${largCm}cm`, maxWidth: "100%", minHeight: `${altCm}cm`, margin: "0 auto", boxShadow: "0 2px 12px rgba(0,0,0,0.15)", boxSizing: "border-box", padding: `0 ${m.dir}cm 0 ${m.esq}cm`, display: "flex", flexDirection: "column" }}>
+      <div style={{ background: "#e9e6df", border: "1px solid rgba(0,0,0,0.12)", borderTop: 0, borderRadius: "0 0 10px 10px", padding: "24px 12px", overflowX: "auto", display: "flex", justifyContent: "center", alignItems: "flex-start", gap: 14 }}>
+        <div ref={pagRef} style={{ position: "relative", background: "#fff", width: `${largCm}cm`, maxWidth: "100%", flex: "none", minHeight: `${altCm}cm`, boxShadow: "0 2px 12px rgba(0,0,0,0.15)", boxSizing: "border-box", padding: `0 ${m.dir}cm 0 ${m.esq}cm`, display: "flex", flexDirection: "column" }}>
           <div style={{ minHeight: `${m.sup}cm`, display: "flex", alignItems: "flex-end", paddingBottom: "0.3cm", boxSizing: "border-box" }}>
             <div ref={cab} className="ed-area" contentEditable suppressContentEditableWarning data-vazio="Cabeçalho (clique para escrever)" lang="pt-BR" spellCheck
               onInput={() => mudarDoc({ cabecalho: cab.current.innerHTML })} style={{ width: "100%", fontFamily: "'Times New Roman', serif" }} />
           </div>
           <div style={{ position: "relative", flex: 1 }}>
-            <div ref={editor} className="ed-texto" contentEditable suppressContentEditableWarning spellCheck lang="pt-BR"
+            <div ref={editor} className={"ed-texto" + (mostrarMarcas ? "" : " sem-marcas")} contentEditable suppressContentEditableWarning spellCheck lang="pt-BR"
               onInput={salvarHtml} onClick={cliqueEditor} onMouseDown={mouseDownEditor} onMouseMove={mouseMoveEditor} onContextMenu={menuContexto}
               style={{ minHeight: alturaUtil, position: "relative" }} />
             {ordemNotas.length > 0 && (
@@ -987,6 +1114,11 @@ export default function EditorTexto() {
             )}
           </div>
         </div>
+        {(Object.keys(comentarios).length > 0 || autoresRev.length > 0 || atual.controlar) && (
+          <PainelRevisao editor={editor.current} pagina={pagRef.current} comentarios={comentarios} versao={atual.html} quebras={quebras}
+            ativo={comAtivo} setAtivo={setComAtivo} novo={comNovo} setNovo={setComNovo} autor={autor} mostrarMarcas={mostrarMarcas}
+            mudar={mudarComentario} excluir={excluirComentario} revisar={revisar} />
+        )}
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, fontSize: 12, color: "#666", marginTop: 6 }}>
         <span>Página {Math.min(pagAtual, totalPag)} de {totalPag} · {palavras} palavra{palavras === 1 ? "" : "s"} · salvo automaticamente neste navegador</span>
@@ -1123,5 +1255,116 @@ function PainelEstilos({ estilos, mudar }) {
         <span style={{ color: "#777" }}>Os estilos valem para o documento todo (na tela, na impressão e no Word). Formatação aplicada direto num trecho continua valendo por cima do estilo.</span>
       </div>
     </div>
+  );
+}
+
+// Coluna à direita da página com os balões de comentários e de alterações, cada um na
+// altura do trecho a que se refere (como no Word).
+function PainelRevisao({ editor, pagina, comentarios, versao, quebras, ativo, setAtivo, novo, setNovo, autor, mostrarMarcas, mudar, excluir, revisar }) {
+  const [tops, setTops] = useState({});
+  const caixa = useRef(null);
+  const itens = [];
+  if (editor && pagina) {
+    const base = pagina.getBoundingClientRect().top;
+    const vistos = new Set();
+    editor.querySelectorAll("span.coment[data-c], ins.rev, del.rev").forEach((el) => {
+      if (el.matches("span.coment")) {
+        const id = el.dataset.c;
+        if (vistos.has(id) || !comentarios[id]) return;
+        vistos.add(id);
+        itens.push({ chave: "c:" + id, tipo: "c", id, y: el.getBoundingClientRect().top - base, c: comentarios[id] });
+      } else if (mostrarMarcas) {
+        const anterior = itens[itens.length - 1];
+        // Exclusão seguida de inclusão do mesmo autor = substituição (um balão só).
+        if (anterior?.tipo === "r" && anterior.els.length === 1 && anterior.els[0].tagName === "DEL" && el.tagName === "INS" && el.previousSibling === anterior.els[0] && el.dataset.autor === anterior.els[0].dataset.autor) {
+          anterior.els.push(el);
+          return;
+        }
+        itens.push({ chave: "r:" + itens.length, tipo: "r", els: [el], y: el.getBoundingClientRect().top - base });
+      }
+    });
+  }
+  // Empilha os balões sem sobrepor, mantendo cada um o mais perto possível do seu trecho.
+  useLayoutEffect(() => {
+    const novos = {};
+    let fim = 0;
+    for (const it of itens) {
+      const el = caixa.current?.querySelector(`[data-balao="${it.chave}"]`);
+      const h = el?.offsetHeight || 60;
+      const top = Math.max(it.y, fim);
+      novos[it.chave] = top;
+      fim = top + h + 6;
+    }
+    if (JSON.stringify(novos) !== JSON.stringify(tops)) setTops(novos);
+  });
+  const dataCurta = (iso) => { try { return new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
+  const cartao = (cor, ativoIt) => ({ position: "absolute", left: 0, right: 0, background: "#fff", borderRadius: 8, padding: "8px 10px", fontSize: 12, fontFamily: "sans-serif", boxShadow: ativoIt ? "0 2px 12px rgba(0,0,0,0.25)" : "0 1px 4px rgba(0,0,0,0.15)", borderLeft: `4px solid ${cor}` });
+  const bt = { border: "1px solid #ddd", background: "#fff", borderRadius: 4, padding: "2px 7px", fontSize: 11, cursor: "pointer" };
+  const altura = Math.max(...itens.map((it) => (tops[it.chave] ?? it.y) + 140), 200);
+  const irPara = (el) => el?.scrollIntoView({ block: "center", behavior: "smooth" });
+  return (
+    <aside ref={caixa} style={{ position: "relative", width: 260, flex: "none", minHeight: altura }}>
+      {!itens.length && <div style={{ fontSize: 12, color: "#777", fontFamily: "sans-serif", padding: 8 }}>Comentários e alterações aparecem aqui, ao lado do trecho.</div>}
+      {itens.map((it) => {
+        const top = tops[it.chave] ?? it.y;
+        if (it.tipo === "c") {
+          const c = it.c;
+          const ativoIt = ativo === it.id;
+          return (
+            <div key={it.chave} data-balao={it.chave} style={{ ...cartao(R.corAutor(c.autor), ativoIt), top, opacity: c.resolvido ? 0.6 : 1 }}
+              onMouseEnter={() => setAtivo(it.id)} onMouseLeave={() => setAtivo(null)}
+              onClick={() => irPara(editor.querySelector(`span.coment[data-c="${it.id}"]`))}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
+                <b style={{ color: R.corAutor(c.autor) }}>💬 {c.autor}</b><span style={{ color: "#999" }}>{dataCurta(c.data)}</span>
+              </div>
+              {novo === it.id || !c.texto ? (
+                <textarea autoFocus defaultValue={c.texto} placeholder="Escreva o comentário…" rows={3}
+                  onClick={(e) => e.stopPropagation()}
+                  onBlur={(e) => { mudar(it.id, { texto: e.target.value }); setNovo(null); }}
+                  style={{ width: "100%", boxSizing: "border-box", marginTop: 4, fontSize: 12, fontFamily: "sans-serif", border: "1px solid #ddd", borderRadius: 4, padding: 4, resize: "vertical" }} />
+              ) : (
+                <div style={{ marginTop: 4, whiteSpace: "pre-wrap", color: "#222" }} onDoubleClick={(e) => { e.stopPropagation(); setNovo(it.id); }} title="Clique duplo para editar">{c.texto}</div>
+              )}
+              {(c.respostas || []).map((r, i) => (
+                <div key={i} style={{ marginTop: 6, paddingTop: 4, borderTop: "1px solid #f0f0f0" }}>
+                  <b style={{ color: R.corAutor(r.autor) }}>{r.autor}</b> <span style={{ color: "#999" }}>{dataCurta(r.data)}</span>
+                  <div style={{ whiteSpace: "pre-wrap" }}>{r.texto}</div>
+                </div>
+              ))}
+              {ativoIt && !c.resolvido && (
+                <input placeholder="Responder… (Enter)" onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" || !e.target.value.trim()) return;
+                    mudar(it.id, { respostas: [...(c.respostas || []), { autor: autor || "Autor", data: new Date().toISOString(), texto: e.target.value.trim() }] });
+                    e.target.value = "";
+                  }}
+                  style={{ width: "100%", boxSizing: "border-box", marginTop: 6, fontSize: 12, border: "1px solid #ddd", borderRadius: 4, padding: "3px 5px" }} />
+              )}
+              <div style={{ display: "flex", gap: 4, marginTop: 6 }} onClick={(e) => e.stopPropagation()}>
+                <button style={bt} onClick={() => mudar(it.id, { resolvido: !c.resolvido })}>{c.resolvido ? "Reabrir" : "✓ Resolver"}</button>
+                <button style={bt} onClick={() => excluir(it.id)}>🗑 Excluir</button>
+              </div>
+            </div>
+          );
+        }
+        const [a, b] = it.els;
+        const cor = R.corAutor(a.dataset.autor);
+        const trecho = (el) => { const t = el.textContent.trim(); return t.length > 70 ? t.slice(0, 70) + "…" : t; };
+        const desc = b ? <>Substituiu «<s>{trecho(a)}</s>» por «<u>{trecho(b)}</u>»</>
+          : a.tagName === "INS" ? <>Incluiu «<u>{trecho(a)}</u>»</> : <>Excluiu «<s>{trecho(a)}</s>»</>;
+        return (
+          <div key={it.chave} data-balao={it.chave} style={{ ...cartao(cor), top, background: "#fbfbfb" }} onClick={() => irPara(a)}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
+              <b style={{ color: cor }}>✎ {a.dataset.autor}</b><span style={{ color: "#999" }}>{dataCurta(a.dataset.data)}</span>
+            </div>
+            <div style={{ marginTop: 3, color: "#333", wordBreak: "break-word" }}>{desc}</div>
+            <div style={{ display: "flex", gap: 4, marginTop: 5 }} onClick={(e) => e.stopPropagation()}>
+              <button style={bt} onClick={() => it.els.forEach((el) => revisar(el, true))}>✓ Aceitar</button>
+              <button style={bt} onClick={() => it.els.forEach((el) => revisar(el, false))}>✕ Rejeitar</button>
+            </div>
+          </div>
+        );
+      })}
+    </aside>
   );
 }

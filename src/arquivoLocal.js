@@ -104,13 +104,13 @@ export async function recursosNaoSuportados(buffer, tipo = "docx") {
     const avisos = [];
     if (tipo === "docx") {
       const doc = await ler(/^word\/document\.xml$/);
-      if (nomes.some((n) => /^word\/comments/.test(n))) avisos.push("comentários");
-      if (/<w:(ins|del) /.test(doc)) avisos.push("controle de alterações");
       if (nomes.some((n) => /^word\/charts\//.test(n))) avisos.push("gráficos");
       if (/<w:txbxContent/.test(doc)) avisos.push("caixas de texto");
-      if (/<w:footnoteReference/.test(doc)) avisos.push("notas de rodapé");
-      if (/<w:fldSimple|<w:instrText[^>]*>\s*(TOC|REF|SEQ)/.test(doc)) avisos.push("campos automáticos (sumário, referências)");
-      if (/<w:sdt>/.test(doc)) avisos.push("campos de formulário");
+      if (/<w:fldSimple|<w:instrText[^>]*>\s*(REF|SEQ)/.test(doc)) avisos.push("referências cruzadas");
+      if (/<w:instrText[^>]*>\s*TOC/.test(doc)) avisos.push("sumário automático (vira texto fixo)");
+      if (/<w:endnoteReference/.test(doc)) avisos.push("notas de fim");
+      // Bloco de sumário também é um <w:sdt>; só os outros contam como formulário.
+      if ((doc.match(/<w:sdt>[\s\S]*?<\/w:sdt>/g) || []).some((x) => !/instrText[^>]*>\s*TOC/.test(x))) avisos.push("campos de formulário");
     }
     return avisos;
   } catch {

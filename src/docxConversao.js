@@ -1,5 +1,6 @@
 import { grade, numColunas, posicao } from "./textoTabelas.js";
 import { estilosDe } from "./textoEstilos.js";
+import { envolverIntervalo } from "./textoRevisao.js";
 
 // Conversão entre o HTML do editor de Texto e arquivos .docx do Word.
 
@@ -47,7 +48,7 @@ function bytesDeDataUrl(src) {
 }
 
 // Devolve o .docx como Blob (quem chama decide se grava no arquivo ou baixa).
-export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {} }) {
+export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {}, comentarios = {} }) {
   const d = await import("docx");
   const parse = (h) => new DOMParser().parseFromString(`<div>${h || ""}</div>`, "text/html").body.firstChild;
   const pagina = doc.pagina || PAGINA_PADRAO;
@@ -118,10 +119,18 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {} })
     for (const filho of no.childNodes) {
       if (filho.nodeType === 3) {
         // Tabulação e quebras de linha do texto viram os equivalentes do Word.
+        const { __rev, ...est } = estilo;
+        if (__rev) {
+          // Texto incluído/excluído com controle de alterações (autor e data)
+          const Classe = __rev.tipo === "ins" ? d.InsertedTextRun : d.DeletedTextRun;
+          const texto = filho.textContent.replace(/[\t\n]/g, " ");
+          if (texto) out.push(new Classe({ text: texto, ...est, id: revId++, author: __rev.autor, date: __rev.data }));
+          continue;
+        }
         const partes = filho.textContent.split("\t");
         partes.forEach((p, i) => {
-          if (i > 0) out.push(new d.TextRun({ children: [new d.Tab()], ...estilo }));
-          if (p) out.push(new d.TextRun({ text: p.replace(/\n/g, " "), ...estilo }));
+          if (i > 0) out.push(new d.TextRun({ children: [new d.Tab()], ...est }));
+          if (p) out.push(new d.TextRun({ text: p.replace(/\n/g, " "), ...est }));
         });
         continue;
       }
@@ -130,7 +139,8 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {} })
       if (tag === "BR") {
         // O <br> no fim do parágrafo só marca linha vazia no HTML; no Word viraria uma linha a mais.
         if (!temConteudoDepois(filho)) continue;
-        out.push(new d.TextRun({ break: 1, ...estilo }));
+        const { __rev, ...est } = estilo;
+        out.push(new d.TextRun({ break: 1, ...est }));
         continue;
       }
       if (tag === "IMG") { const im = imagem(filho); if (im) out.push(im); continue; }
@@ -143,6 +153,19 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {} })
       if (filho.dataset?.campo === "paginas") { out.push(new d.TextRun({ children: [d.PageNumber.TOTAL_PAGES], ...estilo })); continue; }
       if (tag === "A" && filho.getAttribute("href")) {
         out.push(new d.ExternalHyperlink({ link: filho.getAttribute("href"), children: runs(filho, { ...estiloRun(filho, estilo), style: "Hyperlink" }) }));
+        continue;
+      }
+      if ((tag === "INS" || tag === "DEL") && filho.classList.contains("rev")) {
+        out.push(...runs(filho, { ...estiloRun(filho, estilo), __rev: { tipo: tag.toLowerCase(), autor: filho.dataset.autor || "Autor", data: filho.dataset.data || new Date().toISOString() } }));
+        continue;
+      }
+      if (tag === "SPAN" && filho.classList.contains("coment") && numeroCom.has(filho.dataset.c)) {
+        // Trecho comentado: marca início/fim no primeiro e no último pedaço com o mesmo id.
+        const n = numeroCom.get(filho.dataset.c);
+        const a = ancoras.get(filho.dataset.c);
+        if (a.primeiro === filho) out.push(new d.CommentRangeStart(n));
+        out.push(...runs(filho, estiloRun(filho, estilo)));
+        if (a.ultimo === filho) out.push(new d.CommentRangeEnd(n), new d.TextRun({ children: [new d.CommentReference(n)] }));
         continue;
       }
       out.push(...runs(filho, estiloRun(filho, estilo)));
@@ -281,6 +304,15 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {} })
   corpo.querySelectorAll("sup.nota[data-nota]").forEach((s) => { if (!numeroNota.has(s.dataset.nota)) numeroNota.set(s.dataset.nota, numeroNota.size + 1); });
   const notasDocx = {};
   let temSumario = false;
+  let revId = 1;
+  // Comentários: ids numéricos e o primeiro/último pedaço de texto de cada um.
+  const ancoras = new Map();
+  corpo.querySelectorAll("span.coment[data-c]").forEach((el) => {
+    const a = ancoras.get(el.dataset.c) || { primeiro: el };
+    a.ultimo = el;
+    ancoras.set(el.dataset.c, a);
+  });
+  const numeroCom = new Map([...ancoras.keys()].filter((id) => comentarios[id]).map((id, i) => [id, i]));
   const rodapeFilhos = blocos(parse(rodape));
   if (doc.numPag) {
     const pagTxt = doc.numPag === "xdey"
@@ -331,6 +363,17 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {} })
         titulo("Heading1", "Heading 1", est.h1), titulo("Heading2", "Heading 2", est.h2), titulo("Heading3", "Heading 3", est.h3), citacao],
     },
     footnotes: numeroNota.size ? notasDocx : undefined,
+    comments: numeroCom.size ? {
+      children: [...numeroCom].map(([id, n]) => {
+        const c = comentarios[id];
+        const linhas = [(c.resolvido ? "[Resolvido] " : "") + (c.texto || ""), ...(c.respostas || []).map((r) => `↳ ${r.autor}: ${r.texto}`)];
+        return {
+          id: n, author: c.autor || "Autor", initials: (c.autor || "A").split(/\s+/).map((x) => x[0]).join("").slice(0, 3).toUpperCase(),
+          date: c.data ? new Date(c.data) : new Date(),
+          children: linhas.flatMap((l) => l.split("\n")).map((l) => new d.Paragraph(l)),
+        };
+      }),
+    } : undefined,
     features: temSumario ? { updateFields: true } : undefined,
     sections: [{
       properties: {
@@ -473,7 +516,14 @@ function inlinarEstilos(orig, copia) {
     const cor = corHex(st.color);
     if (cor && cor !== (bloco || !pai ? "000000" : corHex(pai.color))) decl.push(`color:#${cor}`);
     if (!bloco && corHex(st.backgroundColor)) decl.push(`background-color:#${corHex(st.backgroundColor)}`);
-    for (const a of [...c.attributes]) if (!["href", "src", "colspan", "rowspan"].includes(a.name)) c.removeAttribute(a.name);
+    for (const a of [...c.attributes]) if (!["href", "src", "colspan", "rowspan", "data-com-ini", "data-com-fim"].includes(a.name)) c.removeAttribute(a.name);
+    if (tag === "INS" || tag === "DEL") {
+      // Riscado/sublinhado e cor das marcações vêm do editor, não do arquivo.
+      for (let k = decl.length - 1; k >= 0; k--) if (/^(text-decoration|color):/.test(decl[k])) decl.splice(k, 1);
+      c.className = "rev";
+      c.dataset.autor = o.dataset.autor || "Autor desconhecido";
+      c.dataset.data = o.dataset.data || o.getAttribute("datetime") || "";
+    }
     if (tag === "IMG") {
       // Imagem com texto ao redor: o docx-preview põe o "float" no bloco em volta.
       const flutua = o.parentElement && getComputedStyle(o.parentElement).float;
@@ -511,7 +561,7 @@ function limpar(raiz) {
     span.append(...n.childNodes);
     n.replaceWith(span);
   });
-  raiz.querySelectorAll("span:not([style]),font:not([style])").forEach((n) => n.replaceWith(...n.childNodes));
+  raiz.querySelectorAll("span:not([style]):not([data-com-ini]):not([data-com-fim]),font:not([style])").forEach((n) => n.replaceWith(...n.childNodes));
   raiz.querySelectorAll("p").forEach((p) => { if (!p.textContent && !p.querySelector("img,br")) p.innerHTML = "<br>"; });
   return raiz.innerHTML;
 }
@@ -532,9 +582,11 @@ export async function docxParaHtml(buffer) {
   try {
     await renderAsync(buffer, caixa, estilos, {
       inWrapper: false, ignoreWidth: false, ignoreHeight: false, breakPages: true, ignoreLastRenderedPageBreak: true,
-      renderHeaders: true, renderFooters: true, renderFootnotes: true, renderEndnotes: false, useBase64URL: true, experimental: true,
+      renderHeaders: true, renderFooters: true, renderFootnotes: true, renderChanges: true, renderComments: true, renderEndnotes: false, useBase64URL: true, experimental: true,
     });
     const secoes = [...caixa.querySelectorAll("section")];
+    await prepararRevisoes(buffer, caixa);
+    const comentarios = prepararComentarios(caixa);
     if (!secoes.length) throw new Error("Documento vazio.");
     // Página e margens da primeira seção
     const st = getComputedStyle(secoes[0]);
@@ -559,11 +611,80 @@ export async function docxParaHtml(buffer) {
       });
     }
     const corpos = secoes.map((s) => converterArea(s.querySelector("article")));
+    // Marcadores de início/fim de comentário viram trechos destacados.
+    const juntar = document.createElement("div");
+    juntar.innerHTML = corpos.filter(Boolean).join('<hr class="quebra">');
+    for (const ini of [...juntar.querySelectorAll("[data-com-ini]")]) {
+      const id = ini.dataset.comIni;
+      const fim = juntar.querySelector(`[data-com-fim="${id}"]`);
+      if (fim) {
+        const r = document.createRange();
+        r.setStartAfter(ini);
+        r.setEndBefore(fim);
+        envolverIntervalo(r, () => { const sp = document.createElement("span"); sp.className = "coment"; sp.dataset.c = id; return sp; });
+      }
+    }
+    juntar.querySelectorAll("[data-com-ini],[data-com-fim]").forEach((x) => x.remove());
+    for (const id of Object.keys(comentarios)) if (!juntar.querySelector(`[data-c="${id}"]`)) delete comentarios[id];
     const cabecalho = converterArea(secoes[0].querySelector("header"));
     const rodape = converterArea(secoes[0].querySelector("footer"));
-    return { html: corpos.filter(Boolean).join('<hr class="quebra">') || "<p><br></p>", cabecalho, rodape, pagina, notas };
+    return { html: juntar.innerHTML || "<p><br></p>", cabecalho, rodape, pagina, notas, comentarios };
   } finally {
     caixa.remove();
     estilos.remove();
   }
+}
+
+// O docx-preview mostra <ins>/<del> mas não diz quem alterou: lemos os autores no XML,
+// na mesma ordem em que aparecem.
+async function prepararRevisoes(buffer, caixa) {
+  try {
+    const JSZip = (await import("jszip")).default;
+    const xml = await (await JSZip.loadAsync(buffer)).file("word/document.xml")?.async("string");
+    if (!xml) return;
+    const x = new DOMParser().parseFromString(xml, "application/xml");
+    const lista = (tag) => [...x.getElementsByTagName(tag)].filter((e) => e.parentNode?.nodeName !== "w:rPr" && e.getElementsByTagName("w:r").length)
+      .map((e) => ({ autor: e.getAttribute("w:author") || "", data: e.getAttribute("w:date") || "" }));
+    for (const [tag, dados] of [["ins", lista("w:ins")], ["del", lista("w:del")]]) {
+      [...caixa.querySelectorAll(`article ${tag}`)].forEach((el, i) => {
+        if (dados[i]) { el.dataset.autor = dados[i].autor; el.dataset.data = dados[i].data; }
+      });
+    }
+  } catch { /* sem autores: ficam como "Autor desconhecido" */ }
+}
+
+// Comentários do docx-preview: marcadores <!--start/end of comment #N--> e um balão com
+// autor, data e texto. Viram { id: { autor, data, texto } } e marcadores no texto.
+function prepararComentarios(caixa) {
+  const comentarios = {};
+  const ids = {};
+  for (const balao of [...caixa.querySelectorAll(".docx-comment-popover")]) {
+    const suporte = balao.parentElement;
+    let n = null, data = "";
+    for (const ch of suporte.childNodes) {
+      if (ch.nodeType !== 8) continue;
+      const m = /comment #(\d+)(?: by .*? on (\S+))?/.exec(ch.data);
+      if (m) { n = m[1]; data = m[2] || ""; }
+    }
+    if (n === null) continue;
+    const id = "c" + Math.random().toString(36).slice(2, 9);
+    ids[n] = id;
+    comentarios[id] = {
+      autor: balao.querySelector(".docx-comment-author")?.textContent || "Autor desconhecido",
+      data: data || new Date().toISOString(),
+      texto: [...balao.querySelectorAll("p")].map((p) => p.textContent).join("\n"),
+    };
+    suporte.remove();
+  }
+  const w = document.createTreeWalker(caixa, NodeFilter.SHOW_COMMENT);
+  const marcas = [];
+  for (let c = w.nextNode(); c; c = w.nextNode()) marcas.push(c);
+  for (const c of marcas) {
+    const m = /^(start|end) of comment #(\d+)/.exec(c.data.trim());
+    if (!m || !ids[m[2]]) continue;
+    const sp = document.createElement("span");
+    sp.setAttribute(m[1] === "start" ? "data-com-ini" : "data-com-fim", ids[m[2]]);
+    c.replaceWith(sp);
+  }
+  return comentarios;
 }
