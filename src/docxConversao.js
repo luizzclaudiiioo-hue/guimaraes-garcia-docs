@@ -1,3 +1,5 @@
+import { grade, numColunas, posicao } from "./textoTabelas.js";
+
 // Conversão entre o HTML do editor de Texto e arquivos .docx do Word.
 
 export const CM = 37.7953; // pixels por centímetro na tela
@@ -181,24 +183,36 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape }) {
   }
 
   function tabela(el) {
+    // Larguras: <colgroup> (em % ou pontos) ou colunas iguais; tudo em twips na largura útil.
+    const g = grade(el);
+    const n = numColunas(g) || 1;
+    const larguraUtil = Math.round((largCm - pagina.margens.esq - pagina.margens.dir) * TWIP_CM);
+    const totalTab = /%$/.test(el.style.width) ? Math.round((larguraUtil * parseFloat(el.style.width)) / 100) : larguraUtil;
+    const cols = [...(el.querySelector(":scope > colgroup")?.children || [])].map((c) => parseFloat(c.style.width || c.getAttribute("width")) || 0);
+    const soma = cols.reduce((a, b) => a + b, 0);
+    const larg = cols.length === n && soma ? cols.map((w) => Math.round((w / soma) * totalTab)) : Array(n).fill(Math.round(totalTab / n));
     const linhas = [...el.rows].map((tr) => new d.TableRow({
       children: [...tr.cells].map((td) => {
         const conteudo = blocos(td);
         const st = td.style;
-        const temBorda = st.borderTop || st.borderBottom || st.borderLeft || st.borderRight || st.border;
+        const c0 = posicao(g, td)?.c ?? 0;
+        const w = larg.slice(c0, c0 + td.colSpan).reduce((a, b) => a + b, 0);
         return new d.TableCell({
           children: conteudo.length ? conteudo : [new d.Paragraph("")],
           columnSpan: td.colSpan > 1 ? td.colSpan : undefined,
           rowSpan: td.rowSpan > 1 ? td.rowSpan : undefined,
+          width: w ? { size: w, type: d.WidthType.DXA } : undefined,
+          verticalAlign: st.verticalAlign === "middle" ? d.VerticalAlign.CENTER : st.verticalAlign === "bottom" ? d.VerticalAlign.BOTTOM : d.VerticalAlign.TOP,
           shading: corHex(st.backgroundColor) ? { type: d.ShadingType.CLEAR, fill: corHex(st.backgroundColor) } : undefined,
-          borders: temBorda ? {
+          // Sem borda definida no HTML = sem borda no Word (o padrão do Word seria com borda).
+          borders: {
             top: borda(st.borderTop || st.border), bottom: borda(st.borderBottom || st.border),
             left: borda(st.borderLeft || st.border), right: borda(st.borderRight || st.border),
-          } : undefined,
+          },
         });
       }),
     }));
-    return new d.Table({ rows: linhas, width: { size: 100, type: d.WidthType.PERCENTAGE } });
+    return new d.Table({ rows: linhas, width: { size: totalTab, type: d.WidthType.DXA }, columnWidths: larg, layout: d.TableLayoutType.FIXED });
   }
 
   const BLOCO = ["P", "DIV", "H1", "H2", "H3", "H4", "H5", "H6", "BLOCKQUOTE"];
@@ -334,6 +348,8 @@ function inlinarEstilos(orig, copia) {
     const c = cs[i];
     if (!c) return;
     const st = getComputedStyle(o);
+    // Continuação de célula mesclada na vertical: o docx-preview só esconde; aqui sai.
+    if ((o.tagName === "TD" || o.tagName === "TH") && st.display === "none") { c.remove(); return; }
     const pai = o.parentElement ? getComputedStyle(o.parentElement) : null;
     const decl = [];
     const tag = o.tagName;
@@ -391,7 +407,8 @@ function inlinarEstilos(orig, copia) {
       c.setAttribute("width", Math.round(o.getBoundingClientRect().width) || o.naturalWidth || 300);
       c.setAttribute("height", Math.round(o.getBoundingClientRect().height) || o.naturalHeight || 200);
     }
-    if (tag === "TABLE") decl.push("border-collapse:collapse", "width:100%");
+    if (tag === "TABLE") decl.push("border-collapse:collapse", "width:100%", "table-layout:fixed");
+    if (tag === "COL" && (o.style.width || o.getAttribute("width"))) decl.push(`width:${o.style.width || o.getAttribute("width") + "px"}`);
     if (decl.length) c.setAttribute("style", decl.join(";"));
     if (bloco && tag !== "TD" && tag !== "TH") {
       // No Word a altura de uma linha em branco vem da fonte do parágrafo; o HTML não traz

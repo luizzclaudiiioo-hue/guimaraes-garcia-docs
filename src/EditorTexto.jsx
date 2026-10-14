@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CM, PAGINA_PADRAO, dimensoes, docxParaHtml, htmlParaDocx } from "./docxConversao.js";
+import * as T from "./textoTabelas.js";
 import { TIPOS, arquivoLembrado, baixar, escolherArquivo, gravarNoArquivo, lembrarArquivo, recursosNaoSuportados, salvarComo, suportaArquivoLocal } from "./arquivoLocal.js";
 
 const GOLD = "#9a6e1e";
@@ -55,6 +56,13 @@ const CSS_PAGINA = `
 .ed-area p { margin: 0; }
 `;
 
+// Só na tela (não vai para a impressão): seleção de células e linhas-guia.
+const CSS_TELA = `
+.ed-texto td[data-sel], .ed-texto th[data-sel] { background-image: linear-gradient(rgba(60,110,200,0.22), rgba(60,110,200,0.22)) !important; }
+.ed-texto td, .ed-texto th { outline: 1px dotted #d6d0c2; outline-offset: -1px; }
+.ed-texto table { margin-bottom: 6pt; }
+`;
+
 export default function EditorTexto() {
   const [docs, setDocs] = useState(() => {
     const salvos = ler(CHAVE, null);
@@ -67,6 +75,9 @@ export default function EditorTexto() {
   const [pagAtual, setPagAtual] = useState(1);
   const [busca, setBusca] = useState(null); // { termo, novo, caso, info }
   const [painelPagina, setPainelPagina] = useState(false);
+  const [menu, setMenu] = useState(null); // menu do botão direito: { x, y, td }
+  const [seletorTabela, setSeletorTabela] = useState(null); // { l, c } sob o mouse
+  const selCelulas = useRef(null); // { tabela, inicio, ret }
   const editor = useRef(null);
   const cab = useRef(null);
   const rod = useRef(null);
@@ -177,8 +188,11 @@ export default function EditorTexto() {
     setDocs((ds) => ds.map((x) => (x.id === atualId ? { ...x, ...patch, atualizado: Date.now(), ...(marcarAlterado ? { alterado: true } : {}) } : x)));
   }
 
+  // HTML do editor sem marcas temporárias da tela (células selecionadas).
+  const htmlLimpo = () => editor.current.innerHTML.replace(/ data-sel="1"/g, "");
+
   function salvarHtml() {
-    mudarDoc({ html: editor.current.innerHTML });
+    mudarDoc({ html: htmlLimpo() });
     medirPaginas();
   }
 
@@ -234,13 +248,101 @@ export default function EditorTexto() {
     setAtualId(lista[0].id);
   }
 
-  function inserirTabela() {
-    const l = parseInt(prompt("Número de linhas:", "3"), 10);
-    const c = parseInt(prompt("Número de colunas:", "3"), 10);
+  // ----- tabelas -----
+
+  function inserirTabela(l, c) {
+    setSeletorTabela(null);
     if (!(l > 0 && c > 0)) return;
-    const td = '<td style="border:1px solid #000;padding:2px 5px;min-width:40px"><br></td>';
-    const tr = `<tr>${td.repeat(c)}</tr>`;
-    cmd("insertHTML", `<table style="border-collapse:collapse;width:100%">${tr.repeat(l)}</table><p><br></p>`);
+    cmd("insertHTML", T.novaTabela(l, c));
+  }
+
+  function limparSelCelulas() {
+    editor.current?.querySelectorAll("[data-sel]").forEach((x) => x.removeAttribute("data-sel"));
+    selCelulas.current = selCelulas.current && { ...selCelulas.current, ret: null };
+  }
+
+  const celulaDe = (alvo) => {
+    const td = alvo?.closest?.("td,th");
+    return td && editor.current.contains(td) ? td : null;
+  };
+
+  function mouseDownEditor(e) {
+    setMenu(null);
+    const td = celulaDe(e.target);
+    if (e.button !== 0) return;
+    limparSelCelulas();
+    selCelulas.current = null;
+    if (!td) return;
+    // Perto da borda direita da célula: arrasta para mudar a largura da coluna.
+    const caixa = td.getBoundingClientRect();
+    if (e.clientX > caixa.right - 5) {
+      const tabela = td.closest("table");
+      const g = T.grade(tabela);
+      const c = T.posicao(g, td).c + td.colSpan - 1;
+      if (T.iniciarRedimensionar(tabela, c, e.clientX, salvarHtml)) { e.preventDefault(); return; }
+    }
+    selCelulas.current = { tabela: td.closest("table"), inicio: td, ret: null };
+  }
+
+  function mouseMoveEditor(e) {
+    const td = celulaDe(e.target);
+    if (!e.buttons) {
+      const borda = td && e.clientX > td.getBoundingClientRect().right - 5 && td.closest("table") && T.posicao(T.grade(td.closest("table")), td).c + td.colSpan < T.numColunas(T.grade(td.closest("table")));
+      editor.current.style.cursor = borda ? "col-resize" : "";
+      return;
+    }
+    const s = selCelulas.current;
+    if (!s || !td || td.closest("table") !== s.tabela || td === s.inicio && !s.ret) return;
+    // Arrastando de uma célula para outra: seleciona o retângulo de células.
+    const ret = T.retangulo(s.tabela, s.inicio, td);
+    editor.current.querySelectorAll("[data-sel]").forEach((x) => x.removeAttribute("data-sel"));
+    ret.celulas.forEach((x) => x.setAttribute("data-sel", "1"));
+    s.ret = ret;
+    document.getSelection().removeAllRanges();
+    e.preventDefault();
+  }
+
+  function menuContexto(e) {
+    const td = celulaDe(e.target);
+    if (!td) return; // fora de tabela: menu normal do navegador (corretor ortográfico)
+    e.preventDefault();
+    if (!td.hasAttribute("data-sel")) limparSelCelulas();
+    setMenu({ x: Math.min(e.clientX, window.innerWidth - 250), y: Math.min(e.clientY, window.innerHeight - 420), td });
+  }
+
+  function opTabela(fn) {
+    const td = menu?.td;
+    setMenu(null);
+    if (!td?.isConnected) return;
+    const tabela = td.closest("table");
+    fn(tabela, td, selCelulas.current?.ret);
+    limparSelCelulas();
+    salvarHtml();
+  }
+
+  function teclaTabela(e) {
+    const s = document.getSelection();
+    const td = s.rangeCount && celulaDe(s.anchorNode?.nodeType === 1 ? s.anchorNode : s.anchorNode?.parentElement);
+    // Delete com células selecionadas: apaga o conteúdo delas, como no Word.
+    if ((e.key === "Delete" || e.key === "Backspace") && selCelulas.current?.ret) {
+      e.preventDefault();
+      selCelulas.current.ret.celulas.forEach((x) => { x.innerHTML = "<br>"; });
+      limparSelCelulas();
+      return salvarHtml();
+    }
+    if (e.key !== "Tab" || !td) return;
+    // Tab / Shift+Tab: próxima / anterior célula; Tab na última cria linha nova.
+    e.preventDefault();
+    const tabela = td.closest("table");
+    const todas = [...tabela.querySelectorAll("td,th")];
+    let alvo = todas[todas.indexOf(td) + (e.shiftKey ? -1 : 1)];
+    if (!alvo && !e.shiftKey) { alvo = T.inserirLinha(tabela, todas[todas.length - 1], true); salvarHtml(); }
+    if (!alvo) return;
+    const r = document.createRange();
+    r.selectNodeContents(alvo);
+    r.collapse(false);
+    s.removeAllRanges();
+    s.addRange(r);
   }
 
   function inserirLink() {
@@ -335,7 +437,7 @@ export default function EditorTexto() {
       if (!img.getAttribute("width")) img.setAttribute("width", img.clientWidth || img.naturalWidth || 300);
       if (!img.getAttribute("height")) img.setAttribute("height", img.clientHeight || img.naturalHeight || 200);
     });
-    const conteudo = { html: editor.current.innerHTML, cabecalho: cab.current.innerHTML, rodape: rod.current.innerHTML };
+    const conteudo = { html: htmlLimpo(), cabecalho: cab.current.innerHTML, rodape: rod.current.innerHTML };
     const doc = atual;
     const nomeBase = (doc.nome || "documento").replace(/\.docx$/i, "");
     try {
@@ -488,7 +590,8 @@ export default function EditorTexto() {
   }
 
   function teclas(e) {
-    if (!(e.ctrlKey || e.metaKey)) return;
+    if (editor.current?.contains(e.target)) teclaTabela(e);
+    if (e.defaultPrevented || !(e.ctrlKey || e.metaKey)) return;
     const k = e.key.toLowerCase();
     if (k === "s") { e.preventDefault(); salvarDocx(e.shiftKey); }
     if (k === "p") { e.preventDefault(); imprimir(); }
@@ -503,7 +606,7 @@ export default function EditorTexto() {
 
   return (
     <div style={{ fontFamily: "sans-serif" }} onKeyDown={teclas}>
-      <style>{CSS_PAGINA}</style>
+      <style>{CSS_PAGINA + CSS_TELA}</style>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
         <select value={atualId} onChange={(e) => trocar(e.target.value)} style={{ ...sSelect, maxWidth: 220 }} title="Documentos salvos neste navegador">
           {docs.map((x) => <option key={x.id} value={x.id}>{x.nome || "(sem nome)"}</option>)}
@@ -583,7 +686,26 @@ export default function EditorTexto() {
         <button style={sBotao()} onClick={() => cmd("outdent")} title="Diminuir recuo">⇤</button>
         <button style={sBotao()} onClick={() => cmd("indent")} title="Aumentar recuo">⇥</button>
         <span style={sSep} />
-        <button style={sBotao()} onClick={inserirTabela} title="Inserir tabela">▦ Tabela</button>
+        <span style={{ position: "relative" }}>
+          <button style={sBotao(!!seletorTabela)} onClick={() => setSeletorTabela((x) => (x ? null : { l: 0, c: 0 }))} title="Inserir tabela">▦ Tabela</button>
+          {seletorTabela && (
+            <div style={{ position: "absolute", top: 34, left: 0, zIndex: 20, background: "#fff", border: "1px solid #ccc", borderRadius: 6, padding: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.15)" }}
+              onMouseLeave={() => setSeletorTabela({ l: 0, c: 0 })}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(10, 16px)", gap: 2 }}>
+                {Array.from({ length: 80 }, (_, i) => {
+                  const l = Math.floor(i / 10) + 1, c = (i % 10) + 1;
+                  const marc = l <= seletorTabela.l && c <= seletorTabela.c;
+                  return <div key={i} onMouseEnter={() => setSeletorTabela({ l, c })} onMouseDown={(e) => e.preventDefault()} onClick={() => inserirTabela(l, c)}
+                    style={{ width: 16, height: 16, border: "1px solid " + (marc ? GOLD : "#ccc"), background: marc ? "rgba(154,110,30,0.25)" : "#fff", cursor: "pointer" }} />;
+                })}
+              </div>
+              <div style={{ fontSize: 12, textAlign: "center", marginTop: 6, color: "#555" }}>
+                {seletorTabela.l ? `${seletorTabela.l} × ${seletorTabela.c}` : "Escolha o tamanho"}{" · "}
+                <a href="#" onMouseDown={(e) => e.preventDefault()} onClick={(e) => { e.preventDefault(); inserirTabela(parseInt(prompt("Número de linhas:", "3"), 10), parseInt(prompt("Número de colunas:", "3"), 10)); }}>outro tamanho…</a>
+              </div>
+            </div>
+          )}
+        </span>
         <button style={sBotao()} onClick={() => arquivoImg.current.click()} title="Inserir imagem">🖼 Imagem</button>
         <button style={sBotao()} onClick={inserirLink} title="Inserir link">🔗</button>
         <button style={sBotao()} onClick={() => cmd("insertHTML", "<hr><p><br></p>")} title="Quebra de página">⤓ Quebra</button>
@@ -656,7 +778,8 @@ export default function EditorTexto() {
           </div>
           <div style={{ position: "relative", flex: 1 }}>
             <div ref={editor} className="ed-texto" contentEditable suppressContentEditableWarning spellCheck lang="pt-BR"
-              onInput={salvarHtml} style={{ minHeight: alturaUtil, position: "relative" }} />
+              onInput={salvarHtml} onMouseDown={mouseDownEditor} onMouseMove={mouseMoveEditor} onContextMenu={menuContexto}
+              style={{ minHeight: alturaUtil, position: "relative" }} />
             {quebras.map((y, i) => (
               <div key={i} style={{ position: "absolute", left: `-${m.esq}cm`, right: `-${m.dir}cm`, top: y, borderTop: "1px dashed #c9bfa8", pointerEvents: "none" }}>
                 <span style={{ position: "absolute", right: 4, top: -9, fontSize: 10, color: "#a8987a", background: "#fff", padding: "0 4px", fontFamily: "sans-serif" }}>Página {i + 2}</span>
@@ -677,6 +800,52 @@ export default function EditorTexto() {
       <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, fontSize: 12, color: "#666", marginTop: 6 }}>
         <span>Página {Math.min(pagAtual, totalPag)} de {totalPag} · {palavras} palavra{palavras === 1 ? "" : "s"} · salvo automaticamente neste navegador</span>
         <span>Ctrl+S salva · Ctrl+Shift+S salva como · Ctrl+P imprime · Ctrl+L localiza · Ctrl+H substitui</span>
+      </div>
+      {menu && <MenuTabela menu={menu} sel={selCelulas.current?.ret} op={opTabela} fechar={() => setMenu(null)} />}
+    </div>
+  );
+}
+
+function MenuTabela({ menu, sel, op, fechar }) {
+  useEffect(() => {
+    const fora = (e) => { if (!e.target.closest?.("[data-menu-tabela]")) fechar(); };
+    const esc = (e) => { if (e.key === "Escape") fechar(); };
+    window.addEventListener("mousedown", fora);
+    window.addEventListener("keydown", esc);
+    return () => { window.removeEventListener("mousedown", fora); window.removeEventListener("keydown", esc); };
+  }, [fechar]);
+  const td = menu.td;
+  const varias = sel && sel.celulas.length > 1;
+  const mesclada = td.rowSpan > 1 || td.colSpan > 1;
+  const item = { display: "block", width: "100%", textAlign: "left", padding: "6px 12px", border: 0, background: "none", fontSize: 13, cursor: "pointer", fontFamily: "sans-serif" };
+  const sep = <div style={{ borderTop: "1px solid #eee", margin: "4px 0" }} />;
+  const I = ({ children, f, desab }) => (
+    <button style={{ ...item, color: desab ? "#bbb" : "#222" }} disabled={desab} onMouseDown={(e) => e.preventDefault()}
+      onMouseEnter={(e) => { e.currentTarget.style.background = "#f4eee2"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "none"; }}
+      onClick={() => op(f)}>{children}</button>
+  );
+  return (
+    <div data-menu-tabela style={{ position: "fixed", left: menu.x, top: menu.y, zIndex: 60, width: 240, background: "#fff", border: "1px solid rgba(0,0,0,0.2)", borderRadius: 8, boxShadow: "0 6px 24px rgba(0,0,0,0.2)", padding: "4px 0" }}>
+      <I f={(t, c) => T.inserirLinha(t, c, false)}>↥ Inserir linha acima</I>
+      <I f={(t, c) => T.inserirLinha(t, c, true)}>↧ Inserir linha abaixo</I>
+      <I f={(t, c) => T.inserirColuna(t, c, false)}>↤ Inserir coluna à esquerda</I>
+      <I f={(t, c) => T.inserirColuna(t, c, true)}>↦ Inserir coluna à direita</I>
+      {sep}
+      <I f={(t, c) => T.excluirLinhas(t, c)}>✕ Excluir linha</I>
+      <I f={(t, c) => T.excluirColunas(t, c)}>✕ Excluir coluna</I>
+      <I f={(t) => t.remove()}>✕ Excluir tabela</I>
+      {sep}
+      <I f={(t, c, s) => T.mesclar(t, s)} desab={!varias}>⊞ Mesclar células{varias ? "" : " (arraste para selecionar)"}</I>
+      <I f={(t, c) => T.dividir(t, c)} desab={!mesclada}>⊟ Dividir célula</I>
+      {sep}
+      <I f={(t, c, s) => T.bordas(t, s?.celulas, "todas")}>▦ Todas as bordas</I>
+      <I f={(t, c, s) => T.bordas(t, s?.celulas, "externas")}>▢ Só bordas externas</I>
+      <I f={(t, c, s) => T.bordas(t, s?.celulas, "nenhuma")}>⬚ Sem bordas</I>
+      <div style={{ ...item, display: "flex", alignItems: "center", gap: 8, cursor: "default" }}>
+        🎨 Sombreamento
+        <input type="color" defaultValue="#f2f2f2" onChange={(e) => { const cor = e.target.value; op((t, c, s) => (s?.celulas.length ? s.celulas : [c]).forEach((x) => { x.style.backgroundColor = cor; })); }} />
+        <button style={{ ...item, width: "auto", padding: "2px 6px", border: "1px solid #ddd", borderRadius: 4 }} onMouseDown={(e) => e.preventDefault()}
+          onClick={() => op((t, c, s) => (s?.celulas.length ? s.celulas : [c]).forEach((x) => { x.style.backgroundColor = ""; }))}>sem cor</button>
       </div>
     </div>
   );
