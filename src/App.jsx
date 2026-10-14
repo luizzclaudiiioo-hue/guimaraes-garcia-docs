@@ -42,6 +42,11 @@ const sLabel = { display: "block", fontSize: 11, color: "#555555", marginBottom:
 const sInput = (vazio) => ({ width: "100%", background: vazio ? "rgba(180,60,60,0.10)" : "rgba(0,0,0,0.06)", border: vazio ? "1px solid rgba(200,80,80,0.5)" : "1px solid rgba(90,122,90,0.3)", borderRadius: 8, color: "#2a2a2a", fontSize: 14, padding: "9px 12px", fontFamily: "sans-serif", outline: "none", boxSizing: "border-box" });
 const sBtn = (dis) => ({ marginTop: 20, width: "100%", padding: "14px 0", background: dis ? "rgba(201,168,76,0.3)" : `linear-gradient(135deg, ${GOLD}, ${GOLD_L})`, border: "none", borderRadius: 10, color: dis ? "#8a7a50" : "#1a2940", fontSize: 15, fontWeight: "bold", cursor: dis ? "not-allowed" : "pointer", fontFamily: "sans-serif", letterSpacing: 1 });
 
+function finInicial() {
+  return { numeroProcesso: "", valorTotal: "", valorEntrada: "", valorParcela: "", numParcelasRestantes: "", percentualExito: "10% (dez por cento)",
+    dataEntrada: new Date().toLocaleDateString("pt-BR"), dataPrimeiraParcela: "" };
+}
+
 function Campo({ label, value, onChange, full, placeholder }) {
   return (
     <div style={{ gridColumn: full ? "1 / -1" : "auto" }}>
@@ -67,7 +72,7 @@ export default function App() {
   const [tipo, setTipo] = useState(null);
   const [texto, setTexto] = useState("");
   const [dados, setDados] = useState(null);
-  const [fin, setFin] = useState({ numeroProcesso: "", valorTotal: "", valorEntrada: "", valorParcela: "", numParcelasRestantes: "", percentualExito: "10% (dez por cento)" });
+  const [fin, setFin] = useState(finInicial);
   const [etapa, setEtapa] = useState("tipo");
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
@@ -185,7 +190,7 @@ export default function App() {
 
   function resetar() {
     setTipo(null); setTexto(""); setDados(null); setErro(""); setDocumento(null);
-    setFin({ numeroProcesso: "", valorTotal: "", valorEntrada: "", valorParcela: "", numParcelasRestantes: "", percentualExito: "10% (dez por cento)" });
+    setFin(finInicial());
     setEtapa("tipo");
   }
 
@@ -316,6 +321,8 @@ export default function App() {
                 <Campo label="Valor da entrada" value={fin.valorEntrada} onChange={(v) => setFin(p => ({ ...p, valorEntrada: v }))} placeholder="R$ 0,00" />
                 <Campo label="Valor de cada parcela" value={fin.valorParcela} onChange={(v) => setFin(p => ({ ...p, valorParcela: v }))} placeholder="R$ 1.000,00" />
                 <Campo label="Nº de parcelas restantes" value={fin.numParcelasRestantes} onChange={(v) => setFin(p => ({ ...p, numParcelasRestantes: v }))} placeholder="5" />
+                <Campo label="Data da entrada" value={fin.dataEntrada} onChange={(v) => setFin(p => ({ ...p, dataEntrada: v }))} placeholder="dd/mm/aaaa" />
+                <Campo label="Vencimento da 1ª parcela" value={fin.dataPrimeiraParcela} onChange={(v) => setFin(p => ({ ...p, dataPrimeiraParcela: v }))} placeholder="dd/mm/aaaa" />
                 <Campo label="Percentual de êxito" full value={fin.percentualExito} onChange={(v) => setFin(p => ({ ...p, percentualExito: v }))} />
 
 

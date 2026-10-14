@@ -86,6 +86,93 @@ function substituirPorIndice(xml, mapa) {
   });
 }
 
+// ---- Tabela de parcelas do contrato ----
+// Layout do modelo: 7 colunas (rótulo, valor, data | espaço | rótulo, valor, data).
+// A coluna da esquerda é preenchida de cima para baixo, depois a da direita; "Total" fica na última linha à direita.
+
+function numeroBR(v) {
+  const n = parseFloat(String(v || '').replace(/R\$\s*/, '').replace(/\./g, '').replace(',', '.'));
+  return isNaN(n) ? 0 : n;
+}
+
+function moedaBR(n) {
+  return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function lerData(s) {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(s || '').trim());
+  if (!m) return null;
+  const d = new Date(Date.UTC(+m[3], +m[2] - 1, +m[1]));
+  return d.getUTCMonth() === +m[2] - 1 ? d : null;
+}
+
+// Mesmo dia em meses seguintes; se o mês não tiver o dia (ex.: 31), usa o último dia do mês.
+function somarMeses(data, meses) {
+  const ano = data.getUTCFullYear(), mes = data.getUTCMonth() + meses, dia = data.getUTCDate();
+  const ultimo = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(ano, mes, Math.min(dia, ultimo)));
+}
+
+function dataBR(d) {
+  if (!d) return '';
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getUTCDate())}/${p(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`;
+}
+
+function textoCelula(tc, texto) {
+  let primeiro = true;
+  // Mantém só o primeiro run (com a formatação dele) e troca o texto
+  return tc.replace(/<w:r>[\s\S]*?<\/w:r>|<w:r [^>]*>[\s\S]*?<\/w:r>/g, (run) => {
+    if (!primeiro) return '';
+    primeiro = false;
+    return run.replace(/<w:t[^>]*>[\s\S]*?<\/w:t>/, `<w:t xml:space="preserve">${esc(texto)}</w:t>`);
+  });
+}
+
+function montarLinha(modelo, valores) {
+  let i = 0;
+  const linha = modelo.replace(/<w:tc>[\s\S]*?<\/w:tc>/g, (tc) => {
+    const v = valores[i++];
+    return v === null ? tc : textoCelula(tc, v);
+  });
+  // IDs de parágrafo não podem se repetir nas linhas copiadas
+  return linha.replace(/ w14:paraId="[^"]*"| w14:textId="[^"]*"/g, '');
+}
+
+function preencherTabelaParcelas(xml, fin) {
+  const tabela = /<w:tbl>[\s\S]*?<\/w:tbl>/.exec(xml);
+  if (!tabela || !tabela[0].includes('parcela')) return xml;
+  const linhas = tabela[0].match(/<w:tr[ >][\s\S]*?<\/w:tr>/g);
+  if (!linhas || (linhas[0].match(/<w:tc>/g) || []).length !== 7) return xml;
+
+  const entrada = numeroBR(fin.valorEntrada);
+  const parcela = numeroBR(fin.valorParcela);
+  const qtd = Math.min(parseInt(fin.numParcelasRestantes) || 0, 120);
+  const dataEntrada = lerData(fin.dataEntrada);
+  const primeira = lerData(fin.dataPrimeiraParcela) || (dataEntrada && somarMeses(dataEntrada, 1));
+
+  const itens = [];
+  if (entrada > 0) itens.push(['Entrada:', moedaBR(entrada), dataBR(dataEntrada)]);
+  for (let i = 0; i < qtd; i++) {
+    itens.push([`${i + 1}ª parcela:`, moedaBR(parcela), primeira ? dataBR(somarMeses(primeira, i)) : '']);
+  }
+  const total = numeroBR(fin.valorTotal) || entrada + parcela * qtd;
+
+  const nLinhas = Math.max(1, Math.ceil((itens.length + 1) / 2));
+  const vazio = ['', '', ''];
+  const novas = [];
+  for (let r = 0; r < nLinhas; r++) {
+    const esq = itens[r] || vazio;
+    const dir = r === nLinhas - 1 ? ['Total:', moedaBR(total), ''] : itens[nLinhas + r] || vazio;
+    novas.push(montarLinha(linhas[0], [...esq, null, ...dir]));
+  }
+
+  const inicio = tabela[0].indexOf(linhas[0]);
+  const fim = tabela[0].lastIndexOf('</w:tr>') + '</w:tr>'.length;
+  const novaTabela = tabela[0].slice(0, inicio) + novas.join('') + tabela[0].slice(fim);
+  return xml.replace(tabela[0], () => novaTabela);
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (!exigirSessao(req, res)) return;
@@ -172,6 +259,7 @@ export default async function handler(req, res) {
         { index: 17, value: nome },
       ];
       xml = substituirPorIndice(xml, mapa);
+      xml = preencherTabelaParcelas(xml, fin);
 
     } else if (tipo === 'declaracao') {
       const nome = d.nome.toUpperCase();
