@@ -1,4 +1,5 @@
 {
+  "regions": ["gru1"],
   "functions": {
     "api/gerar.js": { "includeFiles": "templates/**" }
   },
