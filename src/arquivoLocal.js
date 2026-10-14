@@ -6,8 +6,6 @@ export const suportaArquivoLocal = typeof window !== "undefined" && "showOpenFil
 
 export const TIPOS = {
   docx: { description: "Documento do Word", accept: { "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"] } },
-  xlsx: { description: "Planilha do Excel", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] } },
-  csv: { description: "CSV", accept: { "text/csv": [".csv", ".tsv", ".txt"] } },
   texto: { description: "Texto ou página", accept: { "text/plain": [".txt", ".md"], "text/html": [".html", ".htm"] } },
 };
 
@@ -97,7 +95,7 @@ export const arquivoLembrado = (id) => operar("readonly", (s) => s.get(id));
 
 // ---------- O que o editor não preserva ao salvar por cima ----------
 
-export async function recursosNaoSuportados(buffer, tipo) {
+export async function recursosNaoSuportados(buffer, tipo = "docx") {
   try {
     const JSZip = (await import("jszip")).default;
     const zip = await JSZip.loadAsync(buffer);
@@ -113,16 +111,6 @@ export async function recursosNaoSuportados(buffer, tipo) {
       if (/<w:footnoteReference/.test(doc)) avisos.push("notas de rodapé");
       if (/<w:fldSimple|<w:instrText[^>]*>\s*(TOC|REF|SEQ)/.test(doc)) avisos.push("campos automáticos (sumário, referências)");
       if (/<w:sdt>/.test(doc)) avisos.push("campos de formulário");
-    } else {
-      const folhas = await ler(/^xl\/worksheets\/sheet\d+\.xml$/);
-      if (nomes.some((n) => /^xl\/charts\//.test(n))) avisos.push("gráficos");
-      if (nomes.some((n) => /^xl\/pivot/.test(n))) avisos.push("tabelas dinâmicas");
-      if (nomes.some((n) => /^xl\/(comments|threadedComments)/.test(n))) avisos.push("comentários");
-      if (nomes.some((n) => /^xl\/media\//.test(n))) avisos.push("imagens");
-      if (nomes.some((n) => /vbaProject/.test(n))) avisos.push("macros");
-      if (/<conditionalFormatting/.test(folhas)) avisos.push("formatação condicional");
-      if (/<dataValidations/.test(folhas)) avisos.push("listas suspensas / validação de dados");
-      if (nomes.some((n) => /^xl\/tables\//.test(n))) avisos.push("tabelas formatadas");
     }
     return avisos;
   } catch {

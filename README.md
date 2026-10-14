@@ -25,9 +25,9 @@ npm run dev
 
 Acesse http://localhost:5173
 
-## Texto e Planilha
+## Editor de Texto
 
-Além do gerador de documentos e das publicações, o app tem duas abas de escritório:
+Além do gerador de documentos e das publicações, o app tem um editor de texto:
 
 - **📝 Texto** (estilo Word): página A4, Ofício ou Carta (retrato ou paisagem) com
   margens ajustáveis; cabeçalho, rodapé e número de página ("Página X de Y");
@@ -36,23 +36,15 @@ Além do gerador de documentos e das publicações, o app tem duas abas de escri
   tabelas, imagens e links; localizar e substituir (Ctrl+L / Ctrl+H).
   Abre `.docx` mantendo fontes, espaçamentos, numeração, cabeçalho, rodapé e
   imagens; salva em Word (`.docx`) e imprime ou gera PDF.
-- **📊 Planilha** (estilo Excel): várias planilhas por arquivo, fórmulas em português
-  (`=SOMA(A1:A10)`, `=SE(...)`, `=PROCV(...)`, `=PROCX(...)`, `=SOMASES(...)`,
-  `=DIATRABALHOTOTAL(...)`, `=DATADIF(...)`, `=PGTO(...)` e outras, com `;` entre
-  argumentos), formatos de número (R$, %, data), fontes, cores, bordas, mesclar e
-  quebrar texto, congelar painéis, alça de preenchimento (séries de números, datas e
-  meses), inserir e excluir linhas/colunas, ordenar, filtrar, copiar e colar
-  (inclusive do Excel), desfazer e AutoSoma. Abre e salva `.xlsx` e `.csv`.
 
 **Abrir e salvar no mesmo arquivo:** no Chrome e no Edge (computador), "📂 Abrir"
-liga o documento ou a planilha ao arquivo escolhido, e "💾 Salvar" (Ctrl+S) grava
+liga o documento ao arquivo escolhido, e "💾 Salvar" (Ctrl+S) grava
 por cima desse mesmo arquivo; "Salvar como…" (Ctrl+Shift+S) cria outro. Na primeira
 gravação o navegador pede permissão. Se o arquivo tiver recursos que o app ainda não
-mantém (comentários, controle de alterações, gráficos, macros etc.), o app avisa antes
+mantém (gráficos, caixas de texto, campos de formulário etc.), o app avisa antes
 de gravar por cima. Em outros navegadores, "Salvar" baixa um arquivo novo.
 
 O conteúdo também fica guardado automaticamente no navegador de quem usa (não vai
 para o servidor). Código: `src/arquivoLocal.js`.
 
-O motor de fórmulas fica em `src/formulas.js` e a conversão de/para `.docx` em
-`src/docxConversao.js`.
+A conversão de/para `.docx` fica em `src/docxConversao.js`.
