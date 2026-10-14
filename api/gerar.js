@@ -161,7 +161,7 @@ module.exports = async function handler(req, res) {
         { index: 11, value: `R$ ${stripRS(fin.valorEntrada)} (${valorExtenso(fin.valorEntrada)})` },
         { index: 12, value: `${numParc} (${numParcExtenso})` },
         { index: 13, value: `R$ ${stripRS(fin.valorParcela)} (${valorExtenso(fin.valorParcela)})` },
-        { index: 14, value: dia },
+        { index: 14, value: dia + ' ' },
         { index: 15, value: mes },
         { index: 16, value: ano },
         { index: 17, value: nome },
