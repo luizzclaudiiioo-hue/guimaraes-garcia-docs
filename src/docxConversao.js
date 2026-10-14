@@ -87,7 +87,17 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape }) {
     let w = parseFloat(img.getAttribute("width") || img.style.width) || 300;
     let h = parseFloat(img.getAttribute("height") || img.style.height) || w * 0.75;
     if (w > largUtilPx) { h = (h * largUtilPx) / w; w = largUtilPx; }
-    return new d.ImageRun({ type: dados.tipo, data: dados.bytes, transformation: { width: Math.round(w), height: Math.round(h) } });
+    const flutua = img.style.float === "left" || img.style.float === "right";
+    return new d.ImageRun({
+      type: dados.tipo, data: dados.bytes, transformation: { width: Math.round(w), height: Math.round(h) },
+      // Imagem com texto ao redor: flutuante, presa ao parágrafo, alinhada à esquerda/direita da coluna.
+      floating: flutua ? {
+        horizontalPosition: { relative: d.HorizontalPositionRelativeFrom.COLUMN, align: img.style.float === "left" ? d.HorizontalPositionAlign.LEFT : d.HorizontalPositionAlign.RIGHT },
+        verticalPosition: { relative: d.VerticalPositionRelativeFrom.PARAGRAPH, offset: 0 },
+        wrap: { type: d.TextWrappingType.SQUARE, side: d.TextWrappingSide.BOTH_SIDES },
+        margins: { left: 114300, right: 114300, top: 0, bottom: 57150 },
+      } : undefined,
+    });
   }
 
   const BLOCO_RE = /^(P|DIV|H[1-6]|LI|TD|TH|BLOCKQUOTE)$/;
@@ -404,6 +414,9 @@ function inlinarEstilos(orig, copia) {
     if (!bloco && corHex(st.backgroundColor)) decl.push(`background-color:#${corHex(st.backgroundColor)}`);
     for (const a of [...c.attributes]) if (!["href", "src", "colspan", "rowspan"].includes(a.name)) c.removeAttribute(a.name);
     if (tag === "IMG") {
+      // Imagem com texto ao redor: o docx-preview põe o "float" no bloco em volta.
+      const flutua = o.parentElement && getComputedStyle(o.parentElement).float;
+      if (flutua === "left" || flutua === "right") decl.push(`float:${flutua}`, flutua === "left" ? "margin:0 12px 6px 0" : "margin:0 0 6px 12px");
       c.setAttribute("width", Math.round(o.getBoundingClientRect().width) || o.naturalWidth || 300);
       c.setAttribute("height", Math.round(o.getBoundingClientRect().height) || o.naturalHeight || 200);
     }

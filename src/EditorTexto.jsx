@@ -78,6 +78,8 @@ export default function EditorTexto() {
   const [menu, setMenu] = useState(null); // menu do botão direito: { x, y, td }
   const [seletorTabela, setSeletorTabela] = useState(null); // { l, c } sob o mouse
   const selCelulas = useRef(null); // { tabela, inicio, ret }
+  const [imgSel, setImgSel] = useState(null); // imagem selecionada (elemento)
+  const [, setTick] = useState(0); // redesenha a moldura da imagem
   const editor = useRef(null);
   const cab = useRef(null);
   const rod = useRef(null);
@@ -248,6 +250,73 @@ export default function EditorTexto() {
     setAtualId(lista[0].id);
   }
 
+  // ----- imagens -----
+
+  function selecionarImagem(img) {
+    // Sem seleção de texto (o navegador pintaria a imagem de azul); Delete é tratado à parte.
+    document.getSelection().removeAllRanges();
+    setImgSel(img);
+  }
+
+  // A moldura acompanha a imagem quando o texto muda ou a janela muda de tamanho.
+  useEffect(() => {
+    if (!imgSel) return;
+    const atualizar = () => { if (!imgSel.isConnected) setImgSel(null); else setTick((x) => x + 1); };
+    const fora = (e) => { if (e.target !== imgSel && !e.target.closest?.("[data-moldura]")) setImgSel(null); };
+    window.addEventListener("resize", atualizar);
+    document.addEventListener("selectionchange", atualizar);
+    window.addEventListener("mousedown", fora);
+    return () => { window.removeEventListener("resize", atualizar); document.removeEventListener("selectionchange", atualizar); window.removeEventListener("mousedown", fora); };
+  }, [imgSel]);
+
+  function redimensionarImagem(e, canto) {
+    e.preventDefault();
+    e.stopPropagation();
+    const img = imgSel;
+    const w0 = img.getBoundingClientRect().width, h0 = img.getBoundingClientRect().height;
+    const proporcao = h0 / w0;
+    const max = editor.current.getBoundingClientRect().width;
+    const x0 = e.clientX;
+    const sinal = canto.includes("d") ? 1 : -1; // alças da direita crescem para a direita
+    const mover = (ev) => {
+      const w = Math.max(24, Math.min(max, w0 + sinal * (ev.clientX - x0)));
+      img.setAttribute("width", Math.round(w));
+      img.setAttribute("height", Math.round(w * proporcao));
+      img.style.width = img.style.height = "";
+      setTick((x) => x + 1);
+    };
+    const fim = () => { window.removeEventListener("mousemove", mover); window.removeEventListener("mouseup", fim); salvarHtml(); };
+    window.addEventListener("mousemove", mover);
+    window.addEventListener("mouseup", fim);
+  }
+
+  function posicionarImagem(modo) {
+    const img = imgSel;
+    if (!img) return;
+    const bloco = img.closest("p,div,h1,h2,h3,li,td");
+    img.style.float = modo === "esq" ? "left" : modo === "dir" ? "right" : "";
+    img.style.margin = modo === "esq" ? "0 12px 6px 0" : modo === "dir" ? "0 0 6px 12px" : "";
+    if (bloco && bloco !== editor.current) bloco.style.textAlign = modo === "centro" ? "center" : bloco.style.textAlign === "center" ? "" : bloco.style.textAlign;
+    salvarHtml();
+    setTick((x) => x + 1);
+  }
+
+  function tamanhoOriginal() {
+    const img = imgSel;
+    const max = editor.current.getBoundingClientRect().width;
+    const w = Math.min(img.naturalWidth, max);
+    img.setAttribute("width", Math.round(w));
+    img.setAttribute("height", Math.round((w * img.naturalHeight) / img.naturalWidth));
+    salvarHtml();
+    setTick((x) => x + 1);
+  }
+
+  function excluirImagem() {
+    imgSel?.remove();
+    setImgSel(null);
+    salvarHtml();
+  }
+
   // ----- tabelas -----
 
   function inserirTabela(l, c) {
@@ -268,6 +337,13 @@ export default function EditorTexto() {
 
   function mouseDownEditor(e) {
     setMenu(null);
+    // Clique em imagem: seleciona (moldura com alças); Delete apaga, como no Word.
+    if (e.target.tagName === "IMG") {
+      e.preventDefault();
+      selecionarImagem(e.target);
+      return;
+    }
+    setImgSel(null);
     const td = celulaDe(e.target);
     if (e.button !== 0) return;
     limparSelCelulas();
@@ -321,6 +397,8 @@ export default function EditorTexto() {
   }
 
   function teclaTabela(e) {
+    if (imgSel && (e.key === "Delete" || e.key === "Backspace")) { e.preventDefault(); return excluirImagem(); }
+    if (imgSel && e.key === "Escape") return setImgSel(null);
     const s = document.getSelection();
     const td = s.rangeCount && celulaDe(s.anchorNode?.nodeType === 1 ? s.anchorNode : s.anchorNode?.parentElement);
     // Delete com células selecionadas: apaga o conteúdo delas, como no Word.
@@ -780,6 +858,7 @@ export default function EditorTexto() {
             <div ref={editor} className="ed-texto" contentEditable suppressContentEditableWarning spellCheck lang="pt-BR"
               onInput={salvarHtml} onMouseDown={mouseDownEditor} onMouseMove={mouseMoveEditor} onContextMenu={menuContexto}
               style={{ minHeight: alturaUtil, position: "relative" }} />
+            {imgSel?.isConnected && <MolduraImagem img={imgSel} base={editor.current} redimensionar={redimensionarImagem} posicionar={posicionarImagem} original={tamanhoOriginal} excluir={excluirImagem} />}
             {quebras.map((y, i) => (
               <div key={i} style={{ position: "absolute", left: `-${m.esq}cm`, right: `-${m.dir}cm`, top: y, borderTop: "1px dashed #c9bfa8", pointerEvents: "none" }}>
                 <span style={{ position: "absolute", right: 4, top: -9, fontSize: 10, color: "#a8987a", background: "#fff", padding: "0 4px", fontFamily: "sans-serif" }}>Página {i + 2}</span>
@@ -846,6 +925,35 @@ function MenuTabela({ menu, sel, op, fechar }) {
         <input type="color" defaultValue="#f2f2f2" onChange={(e) => { const cor = e.target.value; op((t, c, s) => (s?.celulas.length ? s.celulas : [c]).forEach((x) => { x.style.backgroundColor = cor; })); }} />
         <button style={{ ...item, width: "auto", padding: "2px 6px", border: "1px solid #ddd", borderRadius: 4 }} onMouseDown={(e) => e.preventDefault()}
           onClick={() => op((t, c, s) => (s?.celulas.length ? s.celulas : [c]).forEach((x) => { x.style.backgroundColor = ""; }))}>sem cor</button>
+      </div>
+    </div>
+  );
+}
+
+function MolduraImagem({ img, base, redimensionar, posicionar, original, excluir }) {
+  const b = base.getBoundingClientRect(), r = img.getBoundingClientRect();
+  const x = r.left - b.left, y = r.top - b.top;
+  const flutua = img.style.float;
+  const centro = img.closest("p,div,h1,h2,h3,li,td")?.style.textAlign === "center";
+  const alca = (canto, estilo) => (
+    <div key={canto} onMouseDown={(e) => redimensionar(e, canto)}
+      style={{ position: "absolute", width: 10, height: 10, background: "#fff", border: "1.5px solid #3b6fd6", borderRadius: 2, cursor: canto === "no" || canto === "sd" ? "nwse-resize" : "nesw-resize", ...estilo }} />
+  );
+  const bt = (ativo) => ({ border: "1px solid #ddd", background: ativo ? "rgba(154,110,30,0.2)" : "#fff", borderRadius: 4, padding: "2px 7px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" });
+  return (
+    <div data-moldura style={{ position: "absolute", left: x, top: y, width: r.width, height: r.height, outline: "1.5px solid #3b6fd6", pointerEvents: "none", zIndex: 4 }}>
+      <div style={{ pointerEvents: "auto" }}>
+        {alca("no", { left: -6, top: -6 })}{alca("ne", { right: -6, top: -6 })}
+        {alca("so", { left: -6, bottom: -6 })}{alca("sd", { right: -6, bottom: -6 })}
+      </div>
+      <div onMouseDown={(e) => e.preventDefault()} style={{ position: "absolute", left: 0, top: y > 40 ? -34 : r.height + 6, display: "flex", gap: 4, pointerEvents: "auto", background: "#fff", padding: 3, borderRadius: 6, boxShadow: "0 2px 10px rgba(0,0,0,0.18)", fontFamily: "sans-serif" }}>
+        <button style={bt(!flutua && !centro)} onClick={() => posicionar("linha")} title="Imagem na linha do texto">Em linha</button>
+        <button style={bt(centro && !flutua)} onClick={() => posicionar("centro")} title="Centralizar">Centro</button>
+        <button style={bt(flutua === "left")} onClick={() => posicionar("esq")} title="Imagem à esquerda, texto ao redor">◧ Texto ao redor</button>
+        <button style={bt(flutua === "right")} onClick={() => posicionar("dir")} title="Imagem à direita, texto ao redor">Texto ao redor ◨</button>
+        <button style={bt()} onClick={original} title="Voltar ao tamanho original (limitado à largura da página)">Tamanho original</button>
+        <button style={bt()} onClick={excluir} title="Excluir imagem (Delete)">🗑</button>
+        <span style={{ fontSize: 11, color: "#888", alignSelf: "center", padding: "0 4px" }}>{Math.round(r.width)}×{Math.round(r.height)}</span>
       </div>
     </div>
   );
