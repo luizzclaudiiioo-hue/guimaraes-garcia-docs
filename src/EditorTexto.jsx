@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { CM, PAGINA_PADRAO, dimensoes, docxParaHtml, htmlParaDocx } from "./docxConversao.js";
 
 const GOLD = "#9a6e1e";
 const CHAVE = "editorTexto.docs";
@@ -8,144 +9,50 @@ function ler(chave, padrao) {
   try { const v = localStorage.getItem(chave); return v === null ? padrao : JSON.parse(v); } catch { return padrao; }
 }
 function gravar(chave, valor) {
-  try { localStorage.setItem(chave, JSON.stringify(valor)); } catch { /* ignora */ }
+  try { localStorage.setItem(chave, JSON.stringify(valor)); return true; } catch { return false; }
 }
 
-function novoDoc(nome = "Documento sem título", html = "<p><br></p>") {
-  return { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), nome, html, atualizado: Date.now() };
+function novoDoc(nome = "Documento sem título", extra = {}) {
+  return {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    nome, html: "<p><br></p>", cabecalho: "", rodape: "", numPag: "", pagina: PAGINA_PADRAO,
+    atualizado: Date.now(), ...extra,
+  };
 }
 
-function baixar(blob, nome) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = nome;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+// Remove scripts e atributos de evento de HTML vindo de fora.
+function sanitizar(html) {
+  const corpo = new DOMParser().parseFromString(html, "text/html").body;
+  corpo.querySelectorAll("script,style,iframe,object,embed,link,meta").forEach((n) => n.remove());
+  corpo.querySelectorAll("*").forEach((n) => [...n.attributes].forEach((a) => { if (/^on/i.test(a.name) || /^\s*javascript:/i.test(a.value)) n.removeAttribute(a.name); }));
+  return corpo.innerHTML;
 }
-
-// ---------- HTML do editor → .docx ----------
-
-const ALINHAMENTO = { left: "left", center: "center", right: "right", justify: "both", start: "left", end: "right" };
-const TITULOS = { H1: "HEADING_1", H2: "HEADING_2", H3: "HEADING_3" };
-
-function corHex(css) {
-  if (!css) return undefined;
-  const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(css);
-  if (m) return [m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, "0")).join("");
-  const h = /^#([0-9a-f]{6})$/i.exec(css.trim());
-  return h ? h[1] : undefined;
-}
-
-// Tamanhos do execCommand("fontSize") 1..7 em pontos.
-const FONT_TAMANHO = { 1: 8, 2: 10, 3: 12, 4: 14, 5: 18, 6: 24, 7: 36 };
-
-async function htmlParaDocx(html, nome) {
-  const d = await import("docx");
-  const raiz = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html").body.firstChild;
-
-  function runs(no, estilo) {
-    const out = [];
-    for (const filho of no.childNodes) {
-      if (filho.nodeType === 3) {
-        if (filho.textContent) out.push(new d.TextRun({ text: filho.textContent, ...estilo }));
-        continue;
-      }
-      if (filho.nodeType !== 1) continue;
-      const tag = filho.tagName;
-      if (tag === "BR") { out.push(new d.TextRun({ break: 1 })); continue; }
-      const s = { ...estilo };
-      if (tag === "B" || tag === "STRONG") s.bold = true;
-      if (tag === "I" || tag === "EM") s.italics = true;
-      if (tag === "U") s.underline = {};
-      if (tag === "S" || tag === "STRIKE") s.strike = true;
-      if (tag === "FONT") {
-        if (filho.getAttribute("size")) s.size = (FONT_TAMANHO[filho.getAttribute("size")] || 12) * 2;
-        if (filho.getAttribute("color")) s.color = corHex(filho.getAttribute("color"));
-        if (filho.getAttribute("face")) s.font = filho.getAttribute("face");
-      }
-      const st = filho.style;
-      if (st.fontWeight === "bold" || Number(st.fontWeight) >= 600) s.bold = true;
-      if (st.fontStyle === "italic") s.italics = true;
-      if (st.textDecoration.includes("underline")) s.underline = {};
-      if (st.textDecoration.includes("line-through")) s.strike = true;
-      if (st.color) s.color = corHex(st.color);
-      if (st.backgroundColor && corHex(st.backgroundColor)) s.shading = { type: d.ShadingType.CLEAR, fill: corHex(st.backgroundColor) };
-      if (st.fontFamily) s.font = st.fontFamily.split(",")[0].replace(/["']/g, "").trim();
-      const pt = /([\d.]+)pt/.exec(st.fontSize) || /([\d.]+)px/.exec(st.fontSize);
-      if (pt) s.size = Math.round(parseFloat(pt[1]) * (st.fontSize.endsWith("px") ? 0.75 : 1) * 2);
-      out.push(...runs(filho, s));
-    }
-    return out;
-  }
-
-  function paragrafo(el, extra = {}) {
-    const alin = ALINHAMENTO[el.style?.textAlign || el.getAttribute?.("align") || ""];
-    return new d.Paragraph({
-      children: runs(el, {}),
-      heading: TITULOS[el.tagName] ? d.HeadingLevel[TITULOS[el.tagName]] : undefined,
-      alignment: alin ? d.AlignmentType[{ left: "LEFT", center: "CENTER", right: "RIGHT", both: "JUSTIFIED" }[alin]] : undefined,
-      ...extra,
-    });
-  }
-
-  function tabela(el) {
-    const linhas = [...el.querySelectorAll("tr")].map((tr) => new d.TableRow({
-      children: [...tr.children].map((td) => new d.TableCell({ children: blocos(td).length ? blocos(td) : [new d.Paragraph("")] })),
-    }));
-    return new d.Table({ rows: linhas, width: { size: 100, type: d.WidthType.PERCENTAGE } });
-  }
-
-  function blocos(no) {
-    const out = [];
-    let soltos = null; // texto/inline fora de parágrafo
-    const fecharSoltos = () => { if (soltos) { out.push(paragrafo(soltos)); soltos = null; } };
-    for (const filho of no.childNodes) {
-      const tag = filho.nodeType === 1 ? filho.tagName : null;
-      if (tag && ["P", "DIV", "H1", "H2", "H3", "BLOCKQUOTE"].includes(tag)) {
-        fecharSoltos();
-        if ([...filho.children].some((c) => ["P", "DIV", "UL", "OL", "TABLE", "H1", "H2", "H3"].includes(c.tagName))) out.push(...blocos(filho));
-        else out.push(paragrafo(filho, tag === "BLOCKQUOTE" ? { indent: { left: 720 } } : {}));
-      } else if (tag === "UL" || tag === "OL") {
-        fecharSoltos();
-        for (const li of filho.querySelectorAll(":scope > li")) {
-          out.push(paragrafo(li, tag === "UL" ? { bullet: { level: 0 } } : { numbering: { reference: "numerada", level: 0 } }));
-        }
-      } else if (tag === "TABLE") {
-        fecharSoltos();
-        out.push(tabela(filho));
-      } else if (tag === "HR") {
-        fecharSoltos();
-        out.push(new d.Paragraph({ children: [new d.PageBreak()] }));
-      } else {
-        if (!soltos) soltos = document.createElement("p");
-        soltos.appendChild(filho.cloneNode(true));
-      }
-    }
-    fecharSoltos();
-    return out;
-  }
-
-  const doc = new d.Document({
-    numbering: { config: [{ reference: "numerada", levels: [{ level: 0, format: d.LevelFormat.DECIMAL, text: "%1.", alignment: d.AlignmentType.LEFT, style: { paragraph: { indent: { left: 720, hanging: 360 } } } }] }] },
-    styles: { default: { document: { run: { font: "Times New Roman", size: 24 } } } },
-    sections: [{
-      properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1701, right: 1134, bottom: 1134, left: 1701 } } },
-      children: blocos(raiz),
-    }],
-  });
-  baixar(await d.Packer.toBlob(doc), `${nome}.docx`);
-}
-
-// ---------- Componente ----------
 
 const FONTES = ["Times New Roman", "Arial", "Calibri", "Georgia", "Verdana", "Courier New"];
 const TAMANHOS = [["1", "8"], ["2", "10"], ["3", "12"], ["4", "14"], ["5", "18"], ["6", "24"], ["7", "36"]];
 
-const sBarra = { display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center", padding: 8, background: "#f4f1ea", border: "1px solid rgba(0,0,0,0.12)", borderRadius: "10px 10px 0 0", position: "sticky", top: 0, zIndex: 2 };
-const sBotao = (ativo) => ({ minWidth: 32, height: 30, padding: "0 8px", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6, background: ativo ? "rgba(154,110,30,0.2)" : "#fff", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif", color: "#2a2a2a" });
+const sBarra = { display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center", padding: 8, background: "#f4f1ea", border: "1px solid rgba(0,0,0,0.12)", borderRadius: "10px 10px 0 0", position: "sticky", top: 0, zIndex: 5 };
+const sBotao = (ativo) => ({ minWidth: 32, height: 30, padding: "0 8px", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6, background: ativo ? "rgba(154,110,30,0.2)" : "#fff", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif", color: "#2a2a2a", whiteSpace: "nowrap" });
 const sSelect = { height: 30, border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6, background: "#fff", fontSize: 13, fontFamily: "sans-serif", padding: "0 4px" };
 const sSep = { width: 1, height: 22, background: "rgba(0,0,0,0.15)", margin: "0 4px" };
+const sCampo = { ...sSelect, padding: "0 8px" };
+
+// Aparência do texto na página; o .docx gerado usa os mesmos padrões.
+const CSS_PAGINA = `
+.ed-texto { font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.5; color: #111; outline: none; }
+.ed-texto p, .ed-texto div, .ed-texto li { margin: 0 0 6pt; }
+.ed-texto h1 { font-size: 16pt; margin: 12pt 0 6pt; } .ed-texto h2 { font-size: 14pt; margin: 12pt 0 6pt; } .ed-texto h3 { font-size: 12pt; margin: 12pt 0 6pt; }
+.ed-texto blockquote { margin: 0 0 6pt 1.27cm; }
+.ed-texto table { border-collapse: collapse; } .ed-texto td, .ed-texto th { vertical-align: top; }
+.ed-texto hr { border: 0; border-top: 1px dashed #bbb; margin: 8pt 0; }
+.ed-texto img { max-width: 100%; }
+.ed-area { font-size: 10pt; line-height: 1.3; min-height: 1.2em; outline: none; border: 1px dashed transparent; border-radius: 4px; padding: 2px 4px; }
+.ed-area:hover, .ed-area:focus { border-color: #d8cfb8; }
+.ed-area:empty::before { content: attr(data-vazio); color: #b9b2a3; }
+.ed-area p { margin: 0; }
+`;
 
 export default function EditorTexto() {
   const [docs, setDocs] = useState(() => {
@@ -155,21 +62,40 @@ export default function EditorTexto() {
   const [atualId, setAtualId] = useState(() => docs[0].id);
   const [estado, setEstado] = useState({});
   const [msg, setMsg] = useState("");
+  const [quebras, setQuebras] = useState([]); // posições (px) onde as páginas terminam
+  const [pagAtual, setPagAtual] = useState(1);
+  const [busca, setBusca] = useState(null); // { termo, novo, caso, info }
+  const [painelPagina, setPainelPagina] = useState(false);
   const editor = useRef(null);
+  const cab = useRef(null);
+  const rod = useRef(null);
   const arquivo = useRef(null);
+  const arquivoImg = useRef(null);
+  const campoBusca = useRef(null);
   const atual = docs.find((x) => x.id === atualId) || docs[0];
+  const pagina = atual.pagina || PAGINA_PADRAO;
+  const [largCm, altCm] = dimensoes(pagina);
+  const m = pagina.margens;
+  const alturaUtil = (altCm - m.sup - m.inf) * CM;
 
-  useEffect(() => { gravar(CHAVE, docs); }, [docs]);
+  useEffect(() => {
+    if (!gravar(CHAVE, docs)) setMsg("Atenção: documento grande demais para ficar salvo no navegador (imagens ocupam muito espaço). Salve em Word (.docx) para não perder.");
+  }, [docs]);
 
-  // Troca de documento: carrega o HTML no editor (fora do React para não perder o cursor).
+  // Troca de documento: carrega o conteúdo (fora do React para não perder o cursor).
   useEffect(() => {
     if (editor.current) editor.current.innerHTML = atual.html;
+    if (cab.current) cab.current.innerHTML = atual.cabecalho || "";
+    if (rod.current) rod.current.innerHTML = atual.rodape || "";
     document.execCommand("styleWithCSS", false, false);
+    document.execCommand("defaultParagraphSeparator", false, "p");
+    medirPaginas();
   }, [atualId]);
 
   useEffect(() => {
     const atualizarEstado = () => {
-      if (!editor.current?.contains(document.getSelection()?.anchorNode)) return;
+      const s = document.getSelection();
+      if (!editor.current?.contains(s?.anchorNode)) return;
       setEstado({
         bold: document.queryCommandState("bold"),
         italic: document.queryCommandState("italic"),
@@ -179,14 +105,59 @@ export default function EditorTexto() {
         insertOrderedList: document.queryCommandState("insertOrderedList"),
         bloco: (document.queryCommandValue("formatBlock") || "p").toLowerCase(),
       });
+      // Página onde está o cursor
+      if (s.rangeCount) {
+        const r = s.getRangeAt(0).getBoundingClientRect();
+        const topo = editor.current.getBoundingClientRect().top;
+        const y = (r.top || r.bottom) - topo;
+        if (r.top || r.bottom) setPagAtual(quebrasRef.current.filter((q) => q <= y).length + 1);
+      }
     };
     document.addEventListener("selectionchange", atualizarEstado);
     return () => document.removeEventListener("selectionchange", atualizarEstado);
   }, []);
 
+  // ----- páginas -----
+
+  const quebrasRef = useRef([]);
+  const medindo = useRef(false);
+  function medirPaginas() {
+    if (medindo.current) return;
+    medindo.current = true;
+    requestAnimationFrame(() => {
+      medindo.current = false;
+      const ed = editor.current;
+      if (!ed) return;
+      const H = alturaUtilRef.current;
+      const lista = [];
+      let inicio = 0;
+      for (const filho of ed.children) {
+        const topo = filho.offsetTop, fim = topo + filho.offsetHeight;
+        if (filho.tagName === "HR") { lista.push(fim); inicio = fim; continue; }
+        while (fim > inicio + H + 1) {
+          // Parágrafo curto que não cabe vai inteiro para a próxima página; longo é dividido.
+          const quebra = topo > inicio && fim - topo < 48 ? topo : inicio + H;
+          lista.push(quebra);
+          inicio = quebra;
+        }
+      }
+      quebrasRef.current = lista;
+      setQuebras((a) => (a.length === lista.length && a.every((v, i) => Math.abs(v - lista[i]) < 1) ? a : lista));
+    });
+  }
+  const alturaUtilRef = useRef(alturaUtil);
+  alturaUtilRef.current = alturaUtil;
+  useLayoutEffect(() => { medirPaginas(); }, [alturaUtil, largCm, m.esq, m.dir]);
+
+  // ----- alterações -----
+
+  function mudarDoc(patch) {
+    setDocs((ds) => ds.map((x) => (x.id === atualId ? { ...x, ...patch, atualizado: Date.now() } : x)));
+  }
+
   function salvarHtml() {
-    const html = editor.current.innerHTML;
-    setDocs((ds) => ds.map((x) => (x.id === atualId ? { ...x, html, atualizado: Date.now() } : x)));
+    mudarDoc({ html: editor.current.innerHTML });
+    medirPaginas();
   }
 
   function cmd(c, v = null) {
@@ -195,14 +166,39 @@ export default function EditorTexto() {
     salvarHtml();
   }
 
+  // Parágrafos tocados pela seleção (para espaçamento e recuo).
+  function blocosSelecionados() {
+    const s = document.getSelection();
+    if (!s.rangeCount || !editor.current.contains(s.anchorNode)) return [];
+    const r = s.getRangeAt(0);
+    const folhas = () => [...editor.current.querySelectorAll("p,h1,h2,h3,h4,li,blockquote,div")].filter((el) => !el.querySelector("p,h1,h2,h3,h4,li,blockquote,div,table") && r.intersectsNode(el));
+    let lista = folhas();
+    if (!lista.length) { document.execCommand("formatBlock", false, "p"); lista = folhas(); }
+    return lista;
+  }
+
+  function estiloParagrafo(prop, valor) {
+    editor.current.focus();
+    const lista = blocosSelecionados();
+    if (!lista.length) return setMsg("Clique no parágrafo (ou selecione o trecho) que deseja ajustar.");
+    lista.forEach((el) => { el.style[prop] = valor; });
+    setMsg("");
+    salvarHtml();
+  }
+
   function renomear(nome) {
     setDocs((ds) => ds.map((x) => (x.id === atualId ? { ...x, nome } : x)));
   }
 
-  function criar(nome, html) {
-    const n = novoDoc(nome, html);
+  function criar(nome, extra) {
+    const n = novoDoc(nome, extra);
     setDocs((ds) => [n, ...ds]);
     setAtualId(n.id);
+  }
+
+  function trocar(id) {
+    salvarHtml();
+    setAtualId(id);
   }
 
   function excluir() {
@@ -217,14 +213,33 @@ export default function EditorTexto() {
     const l = parseInt(prompt("Número de linhas:", "3"), 10);
     const c = parseInt(prompt("Número de colunas:", "3"), 10);
     if (!(l > 0 && c > 0)) return;
-    const td = '<td style="border:1px solid #888;padding:4px 6px;min-width:40px"><br></td>';
+    const td = '<td style="border:1px solid #000;padding:2px 5px;min-width:40px"><br></td>';
     const tr = `<tr>${td.repeat(c)}</tr>`;
     cmd("insertHTML", `<table style="border-collapse:collapse;width:100%">${tr.repeat(l)}</table><p><br></p>`);
   }
 
   function inserirLink() {
     const url = prompt("Endereço do link:", "https://");
-    if (url) cmd("createLink", url);
+    if (url && /^(https?:|mailto:)/i.test(url)) cmd("createLink", url);
+  }
+
+  function inserirImagem(e) {
+    const f = e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    if (!/^image\/(png|jpe?g|gif|bmp)$/.test(f.type)) return setMsg("Use imagens PNG, JPG, GIF ou BMP.");
+    const leitor = new FileReader();
+    leitor.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const max = (largCm - m.esq - m.dir) * CM;
+        const w = Math.min(img.naturalWidth, max);
+        const h = Math.round((img.naturalHeight * w) / img.naturalWidth);
+        cmd("insertHTML", `<img src="${leitor.result}" width="${Math.round(w)}" height="${h}">`);
+      };
+      img.src = leitor.result;
+    };
+    leitor.readAsDataURL(f);
   }
 
   async function abrirArquivo(e) {
@@ -233,22 +248,25 @@ export default function EditorTexto() {
     if (!f) return;
     const nome = f.name.replace(/\.[^.]+$/, "");
     try {
+      setMsg("Abrindo arquivo...");
       if (/\.docx$/i.test(f.name)) {
-        setMsg("Abrindo arquivo...");
-        const mammoth = await import("mammoth");
-        const r = await mammoth.convertToHtml({ arrayBuffer: await f.arrayBuffer() });
-        criar(nome, r.value || "<p><br></p>");
+        const buf = await f.arrayBuffer();
+        let conv;
+        try {
+          conv = await docxParaHtml(buf);
+        } catch {
+          // Plano B: leitura simples (só texto, negrito, listas e tabelas).
+          const mammoth = await import("mammoth");
+          conv = { html: (await mammoth.convertToHtml({ arrayBuffer: buf })).value };
+        }
+        criar(nome, { html: sanitizar(conv.html || "<p><br></p>"), cabecalho: sanitizar(conv.cabecalho || ""), rodape: sanitizar(conv.rodape || ""), pagina: conv.pagina || PAGINA_PADRAO });
       } else if (/\.(txt|md)$/i.test(f.name)) {
         const t = await f.text();
-        const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-        criar(nome, t.split(/\r?\n/).map((l) => `<p>${esc(l) || "<br>"}</p>`).join(""));
+        criar(nome, { html: t.split(/\r?\n/).map((l) => `<p>${esc(l) || "<br>"}</p>`).join("") });
       } else if (/\.html?$/i.test(f.name)) {
-        const corpo = new DOMParser().parseFromString(await f.text(), "text/html").body;
-        corpo.querySelectorAll("script,style,iframe,object,embed,link,meta").forEach((n) => n.remove());
-        corpo.querySelectorAll("*").forEach((n) => [...n.attributes].forEach((a) => { if (/^on/i.test(a.name) || /^\s*javascript:/i.test(a.value)) n.removeAttribute(a.name); }));
-        criar(nome, corpo.innerHTML);
+        criar(nome, { html: sanitizar(await f.text()) });
       } else {
-        throw new Error("Formato não suportado. Use .docx, .txt ou .html.");
+        throw new Error("Formato não suportado. Use .docx, .txt ou .html (arquivos .doc antigos: salve como .docx no Word antes).");
       }
       setMsg("");
     } catch (err) {
@@ -257,10 +275,15 @@ export default function EditorTexto() {
   }
 
   async function salvarDocx() {
+    // Imagens precisam de tamanho explícito no .docx
+    editor.current.querySelectorAll("img").forEach((img) => {
+      if (!img.getAttribute("width")) img.setAttribute("width", img.clientWidth || img.naturalWidth || 300);
+      if (!img.getAttribute("height")) img.setAttribute("height", img.clientHeight || img.naturalHeight || 200);
+    });
     salvarHtml();
     setMsg("Gerando .docx...");
     try {
-      await htmlParaDocx(editor.current.innerHTML, atual.nome || "documento");
+      await htmlParaDocx(atual, { html: editor.current.innerHTML, cabecalho: cab.current.innerHTML, rodape: rod.current.innerHTML });
       setMsg("");
     } catch (err) {
       setMsg("Erro ao gerar .docx: " + err.message);
@@ -270,12 +293,117 @@ export default function EditorTexto() {
   function imprimir() {
     const w = window.open("", "_blank");
     if (!w) return setMsg("Permita pop-ups para imprimir ou salvar em PDF.");
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${atual.nome.replace(/</g, "&lt;")}</title>
-      <style>@page{size:A4;margin:3cm 2cm 2cm 3cm}body{font-family:'Times New Roman',serif;font-size:12pt;line-height:1.5}table{border-collapse:collapse}hr{page-break-after:always;border:0}</style>
-      </head><body>${editor.current.innerHTML}</body></html>`);
+    const numero = {
+      direita: '@bottom-right { content: counter(page); font: 10pt "Times New Roman"; }',
+      centro: '@bottom-center { content: counter(page); font: 10pt "Times New Roman"; }',
+      xdey: '@bottom-center { content: "Página " counter(page) " de " counter(pages); font: 10pt "Times New Roman"; }',
+    }[atual.numPag] || "";
+    // Cabeçalho/rodapé em thead/tfoot: o navegador repete em todas as páginas impressas.
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(atual.nome)}</title>
+      <style>
+        @page { size: ${largCm}cm ${altCm}cm; margin: ${m.sup}cm ${m.dir}cm ${m.inf}cm ${m.esq}cm; ${numero} }
+        body { margin: 0; } ${CSS_PAGINA}
+        table.moldura { width: 100%; border-collapse: collapse; } table.moldura > * > tr > td { padding: 0; }
+        .ed-area { border: 0; padding: 0; } .ed-area:empty { display: none; }
+        hr { page-break-after: always; break-after: page; border: 0; margin: 0; }
+      </style></head><body>
+      <table class="moldura">
+        ${cab.current.innerHTML ? `<thead><tr><td><div class="ed-area" style="padding-bottom:12pt">${cab.current.innerHTML}</div></td></tr></thead>` : ""}
+        ${rod.current.innerHTML ? `<tfoot><tr><td><div class="ed-area" style="padding-top:12pt">${rod.current.innerHTML}</div></td></tr></tfoot>` : ""}
+        <tbody><tr><td><div class="ed-texto">${editor.current.innerHTML}</div></td></tr></tbody>
+      </table></body></html>`);
     w.document.close();
     w.focus();
     w.print();
+  }
+
+  // ----- localizar e substituir -----
+
+  function textos() {
+    const w = document.createTreeWalker(editor.current, NodeFilter.SHOW_TEXT);
+    const nos = [];
+    let total = "";
+    for (let n = w.nextNode(); n; n = w.nextNode()) { nos.push({ n, ini: total.length }); total += n.data; }
+    return { nos, total };
+  }
+  function ocorrencias(termo, caso) {
+    if (!termo) return { lista: [], nos: [] };
+    const { nos, total } = textos();
+    const alvo = caso ? total : total.toLocaleLowerCase("pt-BR");
+    const t = caso ? termo : termo.toLocaleLowerCase("pt-BR");
+    const lista = [];
+    for (let i = alvo.indexOf(t); i >= 0; i = alvo.indexOf(t, i + t.length)) lista.push(i);
+    return { lista, nos };
+  }
+  function intervalo(nos, ini, fim) {
+    const ponto = (pos, final) => {
+      for (let i = nos.length - 1; i >= 0; i--) {
+        if (nos[i].ini < pos || (!final && nos[i].ini === pos)) return { n: nos[i].n, o: pos - nos[i].ini };
+      }
+      return { n: nos[0].n, o: 0 };
+    };
+    const a = ponto(ini, false), b = ponto(fim, true);
+    const r = document.createRange();
+    r.setStart(a.n, a.o);
+    r.setEnd(b.n, b.o);
+    return r;
+  }
+  function posicaoCursor(nos) {
+    const s = document.getSelection();
+    if (!s.rangeCount || !editor.current.contains(s.focusNode)) return 0;
+    const r = s.getRangeAt(0);
+    const no = nos.find((x) => x.n === r.endContainer);
+    return no ? no.ini + r.endOffset : 0;
+  }
+  function selecionar(r) {
+    editor.current.focus();
+    const s = document.getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+    const el = r.startContainer.parentElement;
+    el?.scrollIntoView({ block: "center" });
+  }
+  function localizar(paraTras = false) {
+    const { termo, caso } = busca;
+    const { lista, nos } = ocorrencias(termo, caso);
+    if (!lista.length) return setBusca((b) => ({ ...b, info: "Nada encontrado" }));
+    const s = document.getSelection();
+    let pos = posicaoCursor(nos);
+    if (paraTras && s.rangeCount) pos -= s.toString().length;
+    let i = paraTras ? [...lista].reverse().findIndex((x) => x < pos) : lista.findIndex((x) => x >= pos);
+    if (paraTras) i = i < 0 ? lista.length - 1 : lista.length - 1 - i;
+    else if (i < 0) i = 0;
+    selecionar(intervalo(nos, lista[i], lista[i] + termo.length));
+    setBusca((b) => ({ ...b, info: `${i + 1} de ${lista.length}` }));
+  }
+  function iguais(a, b, caso) {
+    return caso ? a === b : a.toLocaleLowerCase("pt-BR") === b.toLocaleLowerCase("pt-BR");
+  }
+  function substituir() {
+    const { termo, novo, caso } = busca;
+    const s = document.getSelection();
+    if (s.rangeCount && editor.current.contains(s.anchorNode) && iguais(s.toString(), termo, caso)) {
+      document.execCommand("insertText", false, novo);
+      salvarHtml();
+    }
+    localizar();
+  }
+  function substituirTudo() {
+    const { termo, novo, caso } = busca;
+    const { lista, nos } = ocorrencias(termo, caso);
+    // Do fim para o começo, para as posições anteriores não mudarem.
+    for (let i = lista.length - 1; i >= 0; i--) {
+      selecionar(intervalo(nos, lista[i], lista[i] + termo.length));
+      document.execCommand("insertText", false, novo);
+    }
+    salvarHtml();
+    setBusca((b) => ({ ...b, info: lista.length ? `${lista.length} substituição(ões) feitas` : "Nada encontrado" }));
+  }
+  function abrirBusca(substituirTambem) {
+    const s = document.getSelection();
+    const sel = s.rangeCount && editor.current.contains(s.anchorNode) ? s.toString() : "";
+    setBusca((b) => ({ termo: sel || b?.termo || "", novo: b?.novo || "", caso: b?.caso || false, info: "", subst: substituirTambem || b?.subst }));
+    setTimeout(() => campoBusca.current?.focus(), 0);
   }
 
   function teclas(e) {
@@ -283,14 +411,19 @@ export default function EditorTexto() {
     const k = e.key.toLowerCase();
     if (k === "s") { e.preventDefault(); salvarDocx(); }
     if (k === "p") { e.preventDefault(); imprimir(); }
+    if (k === "l" || k === "f") { e.preventDefault(); abrirBusca(false); }
+    if (k === "h") { e.preventDefault(); abrirBusca(true); }
   }
 
-  const palavras = (atual.html.replace(/<[^>]+>/g, " ").match(/\S+/g) || []).length;
+  const palavras = (atual.html.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").match(/\S+/g) || []).length;
+  const totalPag = quebras.length + 1;
+  const textoNumero = { direita: "1", centro: "1", xdey: `Página 1 de ${totalPag}` }[atual.numPag];
 
   return (
     <div style={{ fontFamily: "sans-serif" }}>
+      <style>{CSS_PAGINA}</style>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
-        <select value={atualId} onChange={(e) => { salvarHtml(); setAtualId(e.target.value); }} style={{ ...sSelect, maxWidth: 220 }} title="Documentos salvos neste navegador">
+        <select value={atualId} onChange={(e) => trocar(e.target.value)} style={{ ...sSelect, maxWidth: 220 }} title="Documentos salvos neste navegador">
           {docs.map((x) => <option key={x.id} value={x.id}>{x.nome || "(sem nome)"}</option>)}
         </select>
         <input value={atual.nome} onChange={(e) => renomear(e.target.value)} style={{ ...sSelect, flex: "1 1 180px", padding: "0 8px" }} placeholder="Nome do documento" />
@@ -300,6 +433,7 @@ export default function EditorTexto() {
         <button style={sBotao()} onClick={imprimir}>🖨️ PDF / Imprimir</button>
         <button style={sBotao()} onClick={excluir} title="Excluir documento">🗑️</button>
         <input ref={arquivo} type="file" accept=".docx,.txt,.md,.html,.htm" onChange={abrirArquivo} style={{ display: "none" }} />
+        <input ref={arquivoImg} type="file" accept="image/png,image/jpeg,image/gif,image/bmp" onChange={inserirImagem} style={{ display: "none" }} />
       </div>
       {msg && <p style={{ fontSize: 13, color: GOLD, margin: "0 0 8px" }}>{msg}</p>}
 
@@ -314,7 +448,7 @@ export default function EditorTexto() {
           <option value="h3">Título 3</option>
           <option value="blockquote">Citação</option>
         </select>
-        <select style={sSelect} defaultValue="" onChange={(e) => { cmd("fontName", e.target.value); e.target.value = ""; }} title="Fonte">
+        <select style={{ ...sSelect, width: 120 }} defaultValue="" onChange={(e) => { cmd("fontName", e.target.value); e.target.value = ""; }} title="Fonte">
           <option value="" disabled>Fonte</option>
           {FONTES.map((f) => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
         </select>
@@ -339,32 +473,121 @@ export default function EditorTexto() {
         <button style={sBotao()} onClick={() => cmd("justifyRight")} title="Alinhar à direita">⯈</button>
         <button style={sBotao()} onClick={() => cmd("justifyFull")} title="Justificar">☰</button>
         <span style={sSep} />
+        <select style={{ ...sSelect, width: 112 }} value="" onChange={(e) => estiloParagrafo("lineHeight", e.target.value)} title="Espaçamento entre linhas">
+          <option value="" disabled>↕ Entrelinhas</option>
+          {["1", "1.15", "1.5", "2"].map((v) => <option key={v} value={v}>{v.replace(".", ",")}</option>)}
+        </select>
+        <select style={{ ...sSelect, width: 128 }} value="" onChange={(e) => estiloParagrafo("marginBottom", e.target.value)} title="Espaço depois do parágrafo">
+          <option value="" disabled>¶ Espaço depois</option>
+          {["0pt", "6pt", "12pt", "18pt"].map((v) => <option key={v} value={v}>{v.replace("pt", " pt")}</option>)}
+        </select>
+        <select style={{ ...sSelect, width: 118 }} value="" onChange={(e) => estiloParagrafo("textIndent", e.target.value)} title="Recuo da primeira linha">
+          <option value="" disabled>⇥ Recuo 1ª linha</option>
+          <option value="0cm">Nenhum</option>
+          <option value="1.25cm">1,25 cm</option>
+          <option value="2.5cm">2,5 cm</option>
+          <option value="4cm">4 cm (citação)</option>
+        </select>
+        <span style={sSep} />
         <button style={sBotao(estado.insertUnorderedList)} onClick={() => cmd("insertUnorderedList")} title="Marcadores">• Lista</button>
         <button style={sBotao(estado.insertOrderedList)} onClick={() => cmd("insertOrderedList")} title="Numeração">1. Lista</button>
         <button style={sBotao()} onClick={() => cmd("outdent")} title="Diminuir recuo">⇤</button>
         <button style={sBotao()} onClick={() => cmd("indent")} title="Aumentar recuo">⇥</button>
         <span style={sSep} />
         <button style={sBotao()} onClick={inserirTabela} title="Inserir tabela">▦ Tabela</button>
+        <button style={sBotao()} onClick={() => arquivoImg.current.click()} title="Inserir imagem">🖼 Imagem</button>
         <button style={sBotao()} onClick={inserirLink} title="Inserir link">🔗</button>
-        <button style={sBotao()} onClick={() => cmd("insertHTML", '<hr style="border:0;border-top:1px dashed #bbb"><p><br></p>')} title="Quebra de página">⤓ Página</button>
+        <button style={sBotao()} onClick={() => cmd("insertHTML", "<hr><p><br></p>")} title="Quebra de página">⤓ Quebra</button>
         <button style={sBotao()} onClick={() => cmd("removeFormat")} title="Limpar formatação">⌫ Formato</button>
+        <span style={sSep} />
+        <button style={sBotao(!!busca)} onClick={() => (busca ? setBusca(null) : abrirBusca(true))} title="Localizar e substituir (Ctrl+L / Ctrl+H)">🔍 Localizar</button>
+        <button style={sBotao(painelPagina)} onClick={() => setPainelPagina((x) => !x)} title="Tamanho do papel, margens, cabeçalho, rodapé e número de página">📄 Página</button>
       </div>
 
+      {busca && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", padding: 8, background: "#fbf8f1", border: "1px solid rgba(0,0,0,0.12)", borderTop: 0 }}>
+          <input ref={campoBusca} placeholder="Localizar" value={busca.termo} onChange={(e) => setBusca({ ...busca, termo: e.target.value, info: "" })}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); localizar(e.shiftKey); } if (e.key === "Escape") setBusca(null); }}
+            style={{ ...sCampo, width: 200 }} />
+          <input placeholder="Substituir por" value={busca.novo} onChange={(e) => setBusca({ ...busca, novo: e.target.value })}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); substituir(); } if (e.key === "Escape") setBusca(null); }}
+            style={{ ...sCampo, width: 200 }} />
+          <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 4 }}>
+            <input type="checkbox" checked={busca.caso} onChange={(e) => setBusca({ ...busca, caso: e.target.checked, info: "" })} /> Diferenciar maiúsculas
+          </label>
+          <button style={sBotao()} onMouseDown={(e) => e.preventDefault()} onClick={() => localizar(true)} disabled={!busca.termo} title="Anterior (Shift+Enter)">↑</button>
+          <button style={sBotao()} onMouseDown={(e) => e.preventDefault()} onClick={() => localizar(false)} disabled={!busca.termo} title="Próximo (Enter)">↓ Próximo</button>
+          <button style={sBotao()} onMouseDown={(e) => e.preventDefault()} onClick={substituir} disabled={!busca.termo}>Substituir</button>
+          <button style={sBotao()} onMouseDown={(e) => e.preventDefault()} onClick={substituirTudo} disabled={!busca.termo}>Substituir tudo</button>
+          <span style={{ fontSize: 12, color: "#666" }}>{busca.info}</span>
+          <button style={{ ...sBotao(), marginLeft: "auto" }} onClick={() => setBusca(null)} title="Fechar (Esc)">×</button>
+        </div>
+      )}
+
+      {painelPagina && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", padding: 10, background: "#fbf8f1", border: "1px solid rgba(0,0,0,0.12)", borderTop: 0, fontSize: 13 }}>
+          <label>Papel{" "}
+            <select style={sSelect} value={pagina.tam} onChange={(e) => mudarDoc({ pagina: { ...pagina, tam: e.target.value } })}>
+              <option value="A4">A4 (21 × 29,7 cm)</option>
+              <option value="Oficio">Ofício (21,6 × 33 cm)</option>
+              <option value="Carta">Carta (21,6 × 27,9 cm)</option>
+            </select>
+          </label>
+          <label>Orientação{" "}
+            <select style={sSelect} value={pagina.orient} onChange={(e) => mudarDoc({ pagina: { ...pagina, orient: e.target.value } })}>
+              <option value="retrato">Retrato</option>
+              <option value="paisagem">Paisagem</option>
+            </select>
+          </label>
+          <span>Margens (cm):</span>
+          {[["sup", "Superior"], ["inf", "Inferior"], ["esq", "Esquerda"], ["dir", "Direita"]].map(([k, rot]) => (
+            <label key={k}>{rot}{" "}
+              <input type="number" step="0.25" min="0" max="10" value={m[k]} style={{ ...sCampo, width: 64 }}
+                onChange={(e) => mudarDoc({ pagina: { ...pagina, margens: { ...m, [k]: Math.max(0, Number(e.target.value) || 0) } } })} />
+            </label>
+          ))}
+          <button style={sBotao()} onClick={() => mudarDoc({ pagina: PAGINA_PADRAO })} title="Superior e esquerda 3 cm; inferior e direita 2 cm">Padrão ABNT</button>
+          <label>Número de página{" "}
+            <select style={sSelect} value={atual.numPag || ""} onChange={(e) => mudarDoc({ numPag: e.target.value })}>
+              <option value="">Sem número</option>
+              <option value="direita">No rodapé, à direita</option>
+              <option value="centro">No rodapé, centralizado</option>
+              <option value="xdey">"Página X de Y", centralizado</option>
+            </select>
+          </label>
+          <span style={{ color: "#777" }}>O cabeçalho e o rodapé são escritos direto na folha, acima e abaixo do texto, e se repetem em todas as páginas.</span>
+        </div>
+      )}
+
       <div style={{ background: "#e9e6df", border: "1px solid rgba(0,0,0,0.12)", borderTop: 0, borderRadius: "0 0 10px 10px", padding: "24px 12px", overflowX: "auto" }}>
-        <div
-          ref={editor}
-          contentEditable
-          suppressContentEditableWarning
-          spellCheck
-          lang="pt-BR"
-          onInput={salvarHtml}
-          onKeyDown={teclas}
-          style={{ background: "#fff", width: "100%", maxWidth: "21cm", minHeight: "29.7cm", margin: "0 auto", padding: "3cm 2cm 2cm 3cm", boxSizing: "border-box", boxShadow: "0 2px 12px rgba(0,0,0,0.15)", fontFamily: "'Times New Roman', serif", fontSize: "12pt", lineHeight: 1.5, color: "#111", outline: "none" }}
-        />
+        <div style={{ position: "relative", background: "#fff", width: `${largCm}cm`, maxWidth: "100%", minHeight: `${altCm}cm`, margin: "0 auto", boxShadow: "0 2px 12px rgba(0,0,0,0.15)", boxSizing: "border-box", padding: `0 ${m.dir}cm 0 ${m.esq}cm`, display: "flex", flexDirection: "column" }}>
+          <div style={{ minHeight: `${m.sup}cm`, display: "flex", alignItems: "flex-end", paddingBottom: "0.3cm", boxSizing: "border-box" }}>
+            <div ref={cab} className="ed-area" contentEditable suppressContentEditableWarning data-vazio="Cabeçalho (clique para escrever)" lang="pt-BR" spellCheck
+              onInput={() => mudarDoc({ cabecalho: cab.current.innerHTML })} style={{ width: "100%", fontFamily: "'Times New Roman', serif" }} />
+          </div>
+          <div style={{ position: "relative", flex: 1 }}>
+            <div ref={editor} className="ed-texto" contentEditable suppressContentEditableWarning spellCheck lang="pt-BR"
+              onInput={salvarHtml} onKeyDown={teclas} style={{ minHeight: alturaUtil, position: "relative" }} />
+            {quebras.map((y, i) => (
+              <div key={i} style={{ position: "absolute", left: `-${m.esq}cm`, right: `-${m.dir}cm`, top: y, borderTop: "1px dashed #c9bfa8", pointerEvents: "none" }}>
+                <span style={{ position: "absolute", right: 4, top: -9, fontSize: 10, color: "#a8987a", background: "#fff", padding: "0 4px", fontFamily: "sans-serif" }}>Página {i + 2}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ minHeight: `${m.inf}cm`, paddingTop: "0.3cm", boxSizing: "border-box" }}>
+            <div ref={rod} className="ed-area" contentEditable suppressContentEditableWarning data-vazio="Rodapé (clique para escrever)" lang="pt-BR" spellCheck
+              onInput={() => mudarDoc({ rodape: rod.current.innerHTML })} style={{ width: "100%", fontFamily: "'Times New Roman', serif" }} />
+            {textoNumero && (
+              <div style={{ fontSize: "10pt", fontFamily: "'Times New Roman', serif", textAlign: atual.numPag === "direita" ? "right" : "center", color: "#555", padding: "0 4px" }} title="Número de página (aparece em todas as páginas no Word e na impressão)">
+                {textoNumero}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#666", marginTop: 6 }}>
-        <span>{palavras} palavra{palavras === 1 ? "" : "s"} · salvo automaticamente neste navegador</span>
-        <span>Ctrl+S salva .docx · Ctrl+P imprime</span>
+      <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, fontSize: 12, color: "#666", marginTop: 6 }}>
+        <span>Página {Math.min(pagAtual, totalPag)} de {totalPag} · {palavras} palavra{palavras === 1 ? "" : "s"} · salvo automaticamente neste navegador</span>
+        <span>Ctrl+S salva .docx · Ctrl+P imprime · Ctrl+L localiza · Ctrl+H substitui</span>
       </div>
     </div>
   );
