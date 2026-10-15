@@ -32,9 +32,12 @@ Além do gerador de documentos e das publicações, o app tem um editor de texto
 - **📝 Texto** (estilo Word): interface com faixa de opções (Arquivo, Página Inicial,
   Inserir, Layout, Referências, Revisão, Exibir), zoom e fundo escuro em volta da
   página; fonte padrão Arial Narrow 11; página A4, Ofício ou Carta (retrato ou paisagem) com
-  margens ajustáveis; cabeçalho, rodapé e número de página ("Página X de Y");
+  margens ajustáveis; cabeçalho, rodapé e número de página ("Página X de Y"),
+  com opção de primeira página diferente (timbre só na folha de rosto);
   marcação de onde cada página termina; entrelinhas, espaço depois do parágrafo e
-  recuo da primeira linha; negrito, itálico, fontes, cores, títulos, listas,
+  recuo da primeira linha; negrito, itálico, fontes, cores, títulos, listas
+  em vários níveis (Tab / Shift+Tab; formatos 1. 1.1. 1.1.1., 1. a) i), I. A. 1.),
+  bordas e sombreamento de parágrafo, pincel de formatação, data por extenso,
   links e localizar e substituir (Ctrl+L / Ctrl+H).
   - **Tabelas**: seletor de tamanho, menu do botão direito (inserir/excluir linhas
     e colunas, mesclar arrastando, dividir, bordas, sombreamento), largura das

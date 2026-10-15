@@ -22,6 +22,33 @@ const ALINHAMENTO = { left: "LEFT", start: "LEFT", center: "CENTER", right: "RIG
 const TITULOS = { H1: "HEADING_1", H2: "HEADING_2", H3: "HEADING_3" };
 const FONT_TAMANHO = { 1: 8, 2: 10, 3: 12, 4: 14, 5: 18, 6: 24, 7: 36 }; // execCommand("fontSize")
 
+// Formatos de numeração (como "Lista de vários níveis" do Word): [formato, texto] por nível.
+const FORMATOS_LISTA = {
+  decimal: [["DECIMAL", "%1."], ["DECIMAL", "%2."], ["DECIMAL", "%3."]],
+  juridico: [["DECIMAL", "%1."], ["DECIMAL", "%1.%2."], ["DECIMAL", "%1.%2.%3."], ["DECIMAL", "%1.%2.%3.%4."]],
+  alfa: [["DECIMAL", "%1."], ["LOWER_LETTER", "%2)"], ["LOWER_ROMAN", "%3)"]],
+  romano: [["UPPER_ROMAN", "%1."], ["UPPER_LETTER", "%2."], ["DECIMAL", "%3."]],
+  letras: [["LOWER_LETTER", "%1)"], ["LOWER_ROMAN", "%2)"], ["DECIMAL", "%3."]],
+};
+const MARCADORES = ["\u2022", "\u25E6", "\u25AA"];
+
+function configNumeracao(d) {
+  const recuo = (n, largo) => ({ paragraph: { indent: { left: 720 + 540 * n, hanging: largo ? 360 + 180 * n : 360 }, spacing: { before: 0 } } });
+  const config = Object.entries(FORMATOS_LISTA).map(([nome, niveis]) => ({
+    reference: `num-${nome}`,
+    levels: Array.from({ length: 9 }, (_, n) => {
+      const [formato, texto] = niveis[n] || [niveis[niveis.length - 1][0], `%${n + 1}.`];
+      const t = nome === "juridico" && n >= niveis.length ? Array.from({ length: n + 1 }, (_, i) => `%${i + 1}`).join(".") + "." : texto;
+      return { level: n, format: d.LevelFormat[formato], text: t, alignment: d.AlignmentType.LEFT, style: recuo(n, nome === "juridico") };
+    }),
+  }));
+  config.push({
+    reference: "marcadores",
+    levels: Array.from({ length: 9 }, (_, n) => ({ level: n, format: d.LevelFormat.BULLET, text: MARCADORES[n % 3], alignment: d.AlignmentType.LEFT, style: recuo(n) })),
+  });
+  return config;
+}
+
 function corHex(css) {
   if (!css) return undefined;
   const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?/.exec(css);
@@ -48,7 +75,7 @@ function bytesDeDataUrl(src) {
 }
 
 // Devolve o .docx como Blob (quem chama decide se grava no arquivo ou baixa).
-export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {}, comentarios = {} }) {
+export async function htmlParaDocx(doc, { html, cabecalho, rodape, cabecalho1 = "", rodape1 = "", notas = {}, comentarios = {} }) {
   const d = await import("docx");
   const { estimatePageNumbersWith } = await import("docx/layout");
   const parse = (h) => new DOMParser().parseFromString(`<div>${h || ""}</div>`, "text/html").body.firstChild;
@@ -79,7 +106,7 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {}, c
     if (st.textDecoration.includes("underline") || st.textDecorationLine.includes("underline")) s.underline = {};
     if (st.textDecoration.includes("line-through") || st.textDecorationLine.includes("line-through")) s.strike = true;
     if (corHex(st.color)) s.color = corHex(st.color);
-    if (corHex(st.backgroundColor)) s.shading = { type: d.ShadingType.CLEAR, fill: corHex(st.backgroundColor) };
+    if (!/^(P|DIV|H[1-6]|LI|BLOCKQUOTE|TD|TH)$/.test(tag) && corHex(st.backgroundColor)) s.shading ={ type: d.ShadingType.CLEAR, fill: corHex(st.backgroundColor) };
     if (st.fontFamily) s.font = st.fontFamily.split(",")[0].replace(/["']/g, "").trim();
     const t = twips(st.fontSize);
     if (t) s.size = Math.round(t / 10);
@@ -144,6 +171,7 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {}, c
         out.push(new d.TextRun({ break: 1, ...est }));
         continue;
       }
+      if (tag === "UL" || tag === "OL") continue; // sublista: vira parágrafos próprios
       if (tag === "IMG") { const im = imagem(filho); if (im) out.push(im); continue; }
       if (tag === "SUP" && filho.classList.contains("nota")) {
         const n = numeroNota.get(filho.dataset.nota);
@@ -199,7 +227,11 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {}, c
     const bordas = {};
     if (st.borderTop && !/none/.test(st.borderTop)) bordas.top = { ...borda(st.borderTop), space: 1 };
     if (st.borderBottom && !/none/.test(st.borderBottom)) bordas.bottom = { ...borda(st.borderBottom), space: 1 };
+    if (st.borderLeft && !/none/.test(st.borderLeft)) bordas.left = { ...borda(st.borderLeft), space: 4 };
+    if (st.borderRight && !/none/.test(st.borderRight)) bordas.right = { ...borda(st.borderRight), space: 4 };
     if (Object.keys(bordas).length) p.border = bordas;
+    const fundo = corHex(st.backgroundColor);
+    if (fundo) p.shading = { type: d.ShadingType.CLEAR, color: "auto", fill: fundo };
     return p;
   }
 
@@ -259,6 +291,18 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {}, c
     return new d.Table({ rows: linhas, width: { size: totalTab, type: d.WidthType.DXA }, columnWidths: larg, layout: d.TableLayoutType.FIXED });
   }
 
+  // Lista com subníveis (Tab): o Chrome põe a sublista dentro do <li> ou direto no <ol>.
+  let instanciaLista = 0; // cada lista recomeça do 1
+  function lista(el, nivel, ref, inst, out) {
+    const r = el.tagName === "OL" ? ref : "marcadores";
+    for (const filho of el.children) {
+      if (filho.tagName === "LI") {
+        out.push(paragrafo(filho, { numbering: { reference: r, level: Math.min(nivel, 8), instance: inst } }));
+        for (const sub of filho.children) if (sub.tagName === "OL" || sub.tagName === "UL") lista(sub, nivel + 1, ref, inst, out);
+      } else if (filho.tagName === "OL" || filho.tagName === "UL") lista(filho, nivel + 1, ref, inst, out);
+    }
+  }
+
   const BLOCO = ["P", "DIV", "H1", "H2", "H3", "H4", "H5", "H6", "BLOCKQUOTE"];
   function blocos(no) {
     const out = [];
@@ -272,9 +316,7 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {}, c
         else out.push(paragrafo(filho));
       } else if (tag === "UL" || tag === "OL") {
         fecharSoltos();
-        for (const li of filho.querySelectorAll(":scope > li")) {
-          out.push(paragrafo(li, tag === "UL" ? { bullet: { level: 0 } } : { numbering: { reference: "numerada", level: 0 } }));
-        }
+        lista(filho, 0, `num-${(tag === "OL" && FORMATOS_LISTA[filho.dataset.num] && filho.dataset.num) || "decimal"}`, ++instanciaLista, out);
       } else if (tag === "TABLE") {
         fecharSoltos();
         out.push(tabela(filho));
@@ -323,6 +365,10 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {}, c
     rodapeFilhos.push(new d.Paragraph({ alignment: doc.numPag === "centro" || doc.numPag === "xdey" ? d.AlignmentType.CENTER : d.AlignmentType.RIGHT, children: pagTxt }));
   }
   const cabFilhos = blocos(parse(cabecalho));
+  // Primeira página diferente: o Word usa o "first" na 1ª página e o "default" nas demais.
+  const cab1 = doc.primeiraDiferente ? blocos(parse(cabecalho1)) : [];
+  const rod1 = doc.primeiraDiferente ? blocos(parse(rodape1)) : [];
+  const vazio = () => [new d.Paragraph("")];
 
   const titulo = (id, nome, t) => ({
     id, name: nome, basedOn: "Normal", next: "Normal", quickFormat: true,
@@ -343,7 +389,7 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {}, c
     notasDocx[n] = { children: b.length ? b : [new d.Paragraph("")] };
   }
   const documento = new d.Document({
-    numbering: { config: [{ reference: "numerada", levels: [{ level: 0, format: d.LevelFormat.DECIMAL, text: "%1.", alignment: d.AlignmentType.LEFT, style: { paragraph: { indent: { left: 720, hanging: 360 } } } }] }] },
+    numbering: { config: configNumeracao(d) },
     styles: {
       default: { document: {
         run: { font: est.normal.fonte, size: est.normal.tamanho * 2 },
@@ -383,13 +429,18 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {}, c
     pageNumbers: temSumario ? estimatePageNumbersWith({ measureWidth: await medidorDeTexto(html, est), guess: true }) : undefined,
     sections: [{
       properties: {
+        titlePage: !!doc.primeiraDiferente,
         page: {
           size: { width: Math.round(w * TWIP_CM), height: Math.round(h * TWIP_CM), orientation: pagina.orient === "paisagem" ? d.PageOrientation.LANDSCAPE : d.PageOrientation.PORTRAIT },
           margin: { top: Math.round(m.sup * TWIP_CM), bottom: Math.round(m.inf * TWIP_CM), left: Math.round(m.esq * TWIP_CM), right: Math.round(m.dir * TWIP_CM), header: Math.round(1.25 * TWIP_CM), footer: Math.round(1.25 * TWIP_CM) },
         },
       },
-      headers: cabFilhos.length ? { default: new d.Header({ children: cabFilhos }) } : undefined,
-      footers: rodapeFilhos.length ? { default: new d.Footer({ children: rodapeFilhos }) } : undefined,
+      headers: doc.primeiraDiferente
+        ? { default: new d.Header({ children: cabFilhos.length ? cabFilhos : vazio() }), first: new d.Header({ children: cab1.length ? cab1 : vazio() }) }
+        : cabFilhos.length ? { default: new d.Header({ children: cabFilhos }) } : undefined,
+      footers: doc.primeiraDiferente
+        ? { default: new d.Footer({ children: rodapeFilhos.length ? rodapeFilhos : vazio() }), first: new d.Footer({ children: rod1.length ? rod1 : vazio() }) }
+        : rodapeFilhos.length ? { default: new d.Footer({ children: rodapeFilhos }) } : undefined,
       children: filhosCorpo.length ? filhosCorpo : [new d.Paragraph("")],
     }],
   });
@@ -490,10 +541,11 @@ function inlinarEstilos(orig, copia) {
       if (tag !== "TD" && tag !== "TH") {
         decl.push(`margin-top:${pxPt(st.marginTop)}pt`, `margin-bottom:${pxPt(st.marginBottom)}pt`);
         if (parseFloat(st.textIndent)) decl.push(`text-indent:${pxCm(st.textIndent)}cm`);
-        for (const lado of ["Top", "Bottom"]) {
+        for (const lado of ["Top", "Bottom", "Left", "Right"]) {
           const estilo = st[`border${lado}Style`];
-          if (estilo && estilo !== "none" && parseFloat(st[`border${lado}Width`]) > 0) decl.push(`border-${lado.toLowerCase()}:${st[`border${lado}Width`]} ${estilo} ${st[`border${lado}Color`]}`, `padding-${lado.toLowerCase()}:2pt`);
+          if (estilo && estilo !== "none" && parseFloat(st[`border${lado}Width`]) > 0) decl.push(`border-${lado.toLowerCase()}:${st[`border${lado}Width`]} ${estilo} ${st[`border${lado}Color`]}`, `padding-${lado.toLowerCase()}:${lado === "Top" || lado === "Bottom" ? "2pt" : "5pt"}`);
         }
+        if (bloco && tag !== "LI" && corHex(st.backgroundColor)) decl.push(`background-color:${st.backgroundColor}`);
         if (parseFloat(st.marginLeft) > 0) decl.push(`margin-left:${pxCm(st.marginLeft)}cm`);
         else if (parseFloat(st.paddingLeft) > 0) decl.push(`margin-left:${pxCm(st.paddingLeft)}cm`);
       } else {
@@ -580,6 +632,44 @@ function limpar(raiz) {
   return raiz.innerHTML;
 }
 
+async function numeroDePagina(buffer) {
+  try {
+    const JSZip = (await import("jszip")).default;
+    const zip = await JSZip.loadAsync(buffer);
+    for (const nome of Object.keys(zip.files).filter((n) => /^word\/footer\d*\.xml$/.test(n))) {
+      const xml = await zip.file(nome).async("string");
+      if (!/(instrText[^>]*>\s*PAGE\b|w:instr="\s*PAGE\b)/.test(xml)) continue;
+      if (/NUMPAGES/.test(xml)) return "xdey";
+      const p = (/<w:p[ >](?:(?!<\/w:p>)[\s\S])*?PAGE[\s\S]*?<\/w:p>/.exec(xml) || [""])[0];
+      return /<w:jc w:val="center"/.test(p) ? "centro" : "direita";
+    }
+  } catch { /* sem número */ }
+  return "";
+}
+
+async function cabecalhosSemTitlePg(buffer, renderAsync) {
+  const JSZip = (await import("jszip")).default;
+  const zip = await JSZip.loadAsync(buffer);
+  const xml = await zip.file("word/document.xml")?.async("string");
+  // Só a primeira seção importa (é a que o editor usa).
+  const sectPr = /<w:sectPr[\s>][\s\S]*?<\/w:sectPr>/.exec(xml || "");
+  if (!sectPr || !/<w:titlePg(?:\s*\/>|\s+w:val="(?:1|true|on)"\s*\/>)/.test(sectPr[0])) return null;
+  zip.file("word/document.xml", xml.replace(/<w:titlePg[^>]*\/>/g, ""));
+  const copia = await zip.generateAsync({ type: "arraybuffer" });
+  const caixa = document.createElement("div");
+  caixa.style.cssText = "position:fixed;left:-20000px;top:0;visibility:hidden;pointer-events:none";
+  const estilos = document.createElement("div");
+  document.body.append(caixa, estilos);
+  try {
+    await renderAsync(copia, caixa, estilos, { inWrapper: false, breakPages: true, renderHeaders: true, renderFooters: true, renderFootnotes: false, renderChanges: false, renderComments: false, useBase64URL: true });
+    const s = caixa.querySelector("section");
+    return { cabecalho: converterArea(s?.querySelector("header")), rodape: converterArea(s?.querySelector("footer")) };
+  } finally {
+    caixa.remove();
+    estilos.remove();
+  }
+}
+
 function converterArea(el) {
   if (!el) return "";
   const copia = el.cloneNode(true);
@@ -642,9 +732,24 @@ export async function docxParaHtml(buffer) {
     juntar.querySelectorAll("[data-com-ini],[data-com-fim]").forEach((x) => x.remove());
     juntar.querySelectorAll("[data-sumario]").forEach((x) => { x.className = "sumario"; x.setAttribute("contenteditable", "false"); x.innerHTML = ""; });
     for (const id of Object.keys(comentarios)) if (!juntar.querySelector(`[data-c="${id}"]`)) delete comentarios[id];
-    const cabecalho = converterArea(secoes[0].querySelector("header"));
-    const rodape = converterArea(secoes[0].querySelector("footer"));
-    return { html: juntar.innerHTML || "<p><br></p>", cabecalho, rodape, pagina, notas, comentarios };
+    let cabecalho = converterArea(secoes[0].querySelector("header"));
+    let rodape = converterArea(secoes[0].querySelector("footer"));
+    // Primeira página diferente (w:titlePg): o que apareceu é o da 1ª página; o das demais
+    // vem de uma segunda renderização sem a marca.
+    let extra = {};
+    const demais = await cabecalhosSemTitlePg(buffer, renderAsync);
+    if (demais) {
+      extra = { primeiraDiferente: true, cabecalho1: cabecalho, rodape1: rodape };
+      ({ cabecalho, rodape } = demais);
+    }
+    // Número de página no rodapé (campo PAGE): o docx-preview não mostra; vira a opção do editor.
+    const numPag = await numeroDePagina(buffer);
+    if (numPag) {
+      const so = (h) => { const t = document.createElement("div"); t.innerHTML = h; return t.textContent.trim() || t.querySelector("img") ? h : ""; };
+      rodape = so(rodape);
+      if (extra.rodape1 !== undefined) extra.rodape1 = so(extra.rodape1);
+    }
+    return { html: juntar.innerHTML || "<p><br></p>", cabecalho, rodape, ...extra, numPag, pagina, notas, comentarios };
   } finally {
     caixa.remove();
     estilos.remove();

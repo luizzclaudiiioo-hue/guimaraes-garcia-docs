@@ -171,6 +171,20 @@ const CSS_PAGINA = `
 .ed-area p { margin: 0; }
 `;
 
+// Formatos de numeração em vários níveis (valem também na impressão).
+const CSS_LISTAS = `
+.ed-texto ol[data-num="juridico"] li::marker, .ed-texto ol[data-num="juridico"] ol li::marker { content: counters(list-item, ".") ". "; }
+.ed-texto ol[data-num="alfa"] > li::marker { content: counter(list-item) ". "; }
+.ed-texto ol[data-num="alfa"] ol > li::marker { content: counter(list-item, lower-alpha) ") "; }
+.ed-texto ol[data-num="alfa"] ol ol > li::marker { content: counter(list-item, lower-roman) ") "; }
+.ed-texto ol[data-num="romano"] > li::marker { content: counter(list-item, upper-roman) ". "; }
+.ed-texto ol[data-num="romano"] ol > li::marker { content: counter(list-item, upper-alpha) ". "; }
+.ed-texto ol[data-num="romano"] ol ol > li::marker { content: counter(list-item) ". "; }
+.ed-texto ol[data-num="letras"] > li::marker { content: counter(list-item, lower-alpha) ") "; }
+.ed-texto ol[data-num="letras"] ol > li::marker { content: counter(list-item, lower-roman) ") "; }
+.ed-texto ol ol, .ed-texto ol ul, .ed-texto ul ol, .ed-texto ul ul { margin-top: 0; margin-bottom: 0; }
+`;
+
 // Só na tela (não vai para a impressão): seleção de células e linhas-guia.
 const CSS_TELA = `
 .ed-texto td[data-sel], .ed-texto th[data-sel] { background-image: linear-gradient(rgba(60,110,200,0.22), rgba(60,110,200,0.22)) !important; }
@@ -181,6 +195,7 @@ const CSS_TELA = `
 .ed-texto.sem-marcas del.rev { display: none; }
 .ed-texto.sem-marcas ins.rev { text-decoration: none; color: inherit !important; }
 .ed-texto span.coment { background: rgba(255, 213, 79, 0.35); border-bottom: 2px solid #f0b400; }
+.ed-texto.com-pincel { cursor: copy; }
 `;
 
 export default function EditorTexto() {
@@ -201,6 +216,7 @@ export default function EditorTexto() {
   const [imgSel, setImgSel] = useState(null); // imagem selecionada (elemento)
   const [painelEstilos, setPainelEstilos] = useState(false);
   const [abaFaixa, setAbaFaixa] = useState("inicio");
+  const [pincel, setPincel] = useState(null); // formatação copiada pelo pincel
   const [zoom, setZoom] = useState(100);
   const zoomRef = useRef(1);
   const [contagem, setContagem] = useState(false);
@@ -352,7 +368,25 @@ export default function EditorTexto() {
   function cmd(c, v = null) {
     editor.current.focus();
     document.execCommand(c, false, v);
+    if (/List$/.test(c)) tirarListasDeParagrafos();
     salvarHtml();
+  }
+
+  // O Chrome cria a lista dentro do <p> (<p><ol>…</ol></p>); tira para fora, mantendo o cursor.
+  function tirarListasDeParagrafos() {
+    const presas = editor.current.querySelectorAll("p > ol, p > ul");
+    if (!presas.length) return;
+    const s = document.getSelection();
+    const cursor = s.rangeCount ? { n: s.anchorNode, o: s.anchorOffset } : null;
+    presas.forEach((l) => {
+      const p = l.parentElement;
+      const depois = p.cloneNode(false);
+      while (l.nextSibling) depois.appendChild(l.nextSibling);
+      p.after(l);
+      if (depois.textContent.trim() || depois.querySelector("img,ol,ul,table")) l.after(depois);
+      if (!p.textContent.trim() && !p.querySelector("img")) p.remove();
+    });
+    if (cursor?.n?.isConnected) { try { s.collapse(cursor.n, cursor.o); } catch { /* cursor fica onde estiver */ } }
   }
 
   // Tamanho em pontos (o comando do navegador só conhece 7 tamanhos fixos): marca a seleção
@@ -376,6 +410,105 @@ export default function EditorTexto() {
     });
     setMsg("");
     salvarHtml();
+  }
+
+  // ----- pincel de formatação -----
+
+  function pegarFormato() {
+    if (pincel) return setPincel(null);
+    const s = document.getSelection();
+    if (!s.rangeCount || !editor.current.contains(s.anchorNode)) return setMsg("Clique no texto cuja formatação quer copiar.");
+    const el = s.anchorNode.nodeType === 3 ? s.anchorNode.parentElement : s.anchorNode;
+    const st = getComputedStyle(el);
+    let fundo = "";
+    for (let x = el; x && x !== editor.current; x = x.parentElement) {
+      const bg = getComputedStyle(x).backgroundColor;
+      if (bg && !/rgba\(0, 0, 0, 0\)|transparent/.test(bg)) { fundo = bg; break; }
+    }
+    const deco = st.textDecorationLine || "";
+    setPincel({
+      familia: st.fontFamily.split(",")[0].replace(/["']/g, "").trim(), tamanho: Math.round(parseFloat(st.fontSize) * 0.75 * 2) / 2,
+      negrito: Number(st.fontWeight) >= 600, italico: st.fontStyle === "italic", sublinhado: /underline/.test(deco), tachado: /line-through/.test(deco),
+      cor: st.color, fundo,
+    });
+    setMsg("Pincel: agora selecione o texto que vai receber a formatação (Esc cancela).");
+  }
+
+  function soltarPincel() {
+    if (!pincel) return;
+    const s = document.getSelection();
+    if (!s.rangeCount || s.isCollapsed || !editor.current.contains(s.anchorNode)) return;
+    document.execCommand("removeFormat");
+    const f = pincel;
+    R.envolverIntervalo(s.getRangeAt(0), () => {
+      const sp = document.createElement("span");
+      sp.style.fontFamily = `'${f.familia}'`;
+      sp.style.fontSize = `${f.tamanho}pt`;
+      if (f.negrito) sp.style.fontWeight = "bold";
+      if (f.italico) sp.style.fontStyle = "italic";
+      const deco = [f.sublinhado && "underline", f.tachado && "line-through"].filter(Boolean).join(" ");
+      if (deco) sp.style.textDecoration = deco;
+      sp.style.color = f.cor;
+      if (f.fundo) sp.style.backgroundColor = f.fundo;
+      return sp;
+    });
+    setPincel(null);
+    setMsg("");
+    salvarHtml();
+  }
+
+  // ----- listas e parágrafos -----
+
+  // Formato da numeração da lista onde está o cursor (cria a lista se ainda não houver).
+  function formatoNumeracao(tipo) {
+    editor.current.focus();
+    const s = document.getSelection();
+    const naLista = () => {
+      const n = s.anchorNode && (s.anchorNode.nodeType === 3 ? s.anchorNode.parentElement : s.anchorNode);
+      let ol = n?.closest?.("ol");
+      while (ol?.parentElement?.closest?.("ol") && editor.current.contains(ol.parentElement)) ol = ol.parentElement.closest("ol");
+      return ol && editor.current.contains(ol) ? ol : null;
+    };
+    if (!naLista()) { document.execCommand("insertOrderedList"); tirarListasDeParagrafos(); }
+    const ol = naLista();
+    if (!ol) return;
+    if (tipo === "decimal") ol.removeAttribute("data-num"); else ol.dataset.num = tipo;
+    salvarHtml();
+  }
+
+  // Bordas e sombreamento dos parágrafos selecionados.
+  function bordaParagrafo(tipo) {
+    editor.current.focus();
+    const lista = blocosSelecionados();
+    if (!lista.length) return setMsg("Clique no parágrafo (ou selecione o trecho) que deseja ajustar.");
+    const linha = "1px solid #000";
+    lista.forEach((el) => {
+      for (const lado of ["Top", "Bottom", "Left", "Right"]) el.style[`border${lado}`] = "";
+      el.style.padding = "";
+      if (tipo === "inferior") { el.style.borderBottom = linha; el.style.paddingBottom = "2pt"; }
+      if (tipo === "superior") { el.style.borderTop = linha; el.style.paddingTop = "2pt"; }
+      if (tipo === "caixa") { el.style.border = linha; el.style.padding = "3pt 5pt"; }
+    });
+    salvarHtml();
+  }
+
+  function sombreamentoParagrafo(cor) {
+    editor.current.focus();
+    const lista = blocosSelecionados();
+    lista.forEach((el) => { el.style.backgroundColor = cor || ""; });
+    salvarHtml();
+  }
+
+  // Data de hoje por extenso, no formato usado em petições.
+  function textoData(formato) {
+    const h = new Date();
+    const mes = h.toLocaleDateString("pt-BR", { month: "long" });
+    const extenso = `${h.getDate()} de ${mes} de ${h.getFullYear()}`;
+    return {
+      extenso, curta: h.toLocaleDateString("pt-BR"),
+      semana: `${h.toLocaleDateString("pt-BR", { weekday: "long" })}, ${extenso}`,
+      local: `São Paulo, ${extenso}.`,
+    }[formato];
   }
 
   // A+ / A-: próximo tamanho da lista a partir do tamanho atual do trecho.
@@ -796,7 +929,18 @@ export default function EditorTexto() {
   }
 
   function teclaTabela(e) {
+    if (pincel && e.key === "Escape") { setPincel(null); setMsg(""); return; }
     if (imgSel && (e.key === "Delete" || e.key === "Backspace")) { e.preventDefault(); return excluirImagem(); }
+    {
+      // Tab / Shift+Tab num item de lista (fora de tabela): desce / sobe um nível.
+      const s0 = document.getSelection();
+      const n0 = s0.rangeCount && (s0.anchorNode?.nodeType === 3 ? s0.anchorNode.parentElement : s0.anchorNode);
+      if (e.key === "Tab" && n0?.closest?.("li") && !n0.closest("td,th")) {
+        e.preventDefault();
+        document.execCommand(e.shiftKey ? "outdent" : "indent");
+        return salvarHtml();
+      }
+    }
     if (imgSel && e.key === "Escape") return setImgSel(null);
     const s = document.getSelection();
     const td = s.rangeCount && celulaDe(s.anchorNode?.nodeType === 1 ? s.anchorNode : s.anchorNode?.parentElement);
@@ -887,7 +1031,7 @@ export default function EditorTexto() {
           conv = { html: (await mammoth.convertToHtml({ arrayBuffer: buf })).value };
         }
         const avisos = handle ? await recursosNaoSuportados(buf, "docx") : [];
-        novo = criar(nome, { html: sanitizar(conv.html || "<p><br></p>"), cabecalho: sanitizar(conv.cabecalho || ""), rodape: sanitizar(conv.rodape || ""), pagina: conv.pagina || PAGINA_PADRAO, comentarios: conv.comentarios || {}, notas: Object.fromEntries(Object.entries(conv.notas || {}).map(([k, v]) => [k, sanitizar(v)])), ...vinculo, avisos });
+        novo = criar(nome, { html: sanitizar(conv.html || "<p><br></p>"), cabecalho: sanitizar(conv.cabecalho || ""), rodape: sanitizar(conv.rodape || ""), numPag: conv.numPag || "", primeiraDiferente: !!conv.primeiraDiferente, cabecalho1: sanitizar(conv.cabecalho1 || ""), rodape1: sanitizar(conv.rodape1 || ""), pagina: conv.pagina || PAGINA_PADRAO, comentarios: conv.comentarios || {}, notas: Object.fromEntries(Object.entries(conv.notas || {}).map(([k, v]) => [k, sanitizar(v)])), ...vinculo, avisos });
       } else if (/\.(txt|md)$/i.test(f.name)) {
         const t = await f.text();
         novo = criar(nome, { html: t.split(/\r?\n/).map((l) => `<p>${esc(l) || "<br>"}</p>`).join(""), ...vinculo });
@@ -915,7 +1059,7 @@ export default function EditorTexto() {
       if (!img.getAttribute("height")) img.setAttribute("height", img.clientHeight || img.naturalHeight || 200);
     });
     renumerarNotas();
-    const conteudo = { html: htmlLimpo(), cabecalho: cab.current.innerHTML, rodape: rod.current.innerHTML, notas: atual.notas || {}, comentarios: atual.comentarios || {} };
+    const conteudo = { html: htmlLimpo(), cabecalho: cab.current.innerHTML, rodape: rod.current.innerHTML, cabecalho1: atual.cabecalho1 || "", rodape1: atual.rodape1 || "", notas: atual.notas || {}, comentarios: atual.comentarios || {} };
     const doc = atual;
     const nomeBase = (doc.nome || "documento").replace(/\.docx$/i, "");
     try {
@@ -964,7 +1108,7 @@ export default function EditorTexto() {
       <style>
         @page { size: ${largCm}cm ${altCm}cm; margin: ${m.sup}cm ${m.dir}cm ${m.inf}cm ${m.esq}cm; ${numero} }
         ${CSS_FONTES.replace(/url\("\//g, `url("${location.origin}/`)}
-        body { margin: 0; } ${CSS_PAGINA} ${cssDoc}
+        body { margin: 0; } ${CSS_PAGINA} ${CSS_LISTAS} ${cssDoc}
         .sumario { border: 0; padding: 0; } .ed-notas { margin-top: 18pt; border-top: 1px solid #000; padding-top: 4pt; }
         table.moldura { width: 100%; border-collapse: collapse; } table.moldura > * > tr > td { padding: 0; }
         .ed-area { border: 0; padding: 0; } .ed-area:empty { display: none; }
@@ -1087,7 +1231,7 @@ export default function EditorTexto() {
 
   return (
     <div style={{ fontFamily: FONTE_UI, borderRadius: 10, boxShadow: "0 2px 14px rgba(0,0,0,0.18)" }} onKeyDown={teclas}>
-      <style>{CSS_FONTES + CSS_PAGINA + cssDoc + CSS_TELA + cssRevisao + (mostrarGrade ? "" : ".ed-texto td, .ed-texto th { outline: none; }")}</style>
+      <style>{CSS_FONTES + CSS_PAGINA + CSS_LISTAS + cssDoc + CSS_TELA + cssRevisao + (mostrarGrade ? "" : ".ed-texto td, .ed-texto th { outline: none; }")}</style>
       <input ref={arquivo} type="file" accept=".docx,.txt,.md,.html,.htm" onChange={abrirArquivo} style={{ display: "none" }} />
       <input ref={arquivoImg} type="file" accept="image/png,image/jpeg,image/gif,image/bmp" onChange={inserirImagem} style={{ display: "none" }} />
 
@@ -1146,6 +1290,7 @@ export default function EditorTexto() {
           <Grupo titulo="Área de Transferência">
             <Btn grande icone="📋" rotulo="Colar" onClick={colar} title="Colar como texto (Ctrl+V cola mantendo a formatação)" />
             <div style={sColuna}>
+              <Btn icone="🖌" rotulo="Pincel" ativo={!!pincel} onClick={pegarFormato} title="Pincel de formatação: copia a formatação do trecho onde está o cursor para o próximo texto que você selecionar" />
               <Btn icone="✂" rotulo="Recortar" onClick={() => cmd("cut")} title="Ctrl+X" />
               <Btn icone="⧉" rotulo="Copiar" onClick={() => cmd("copy")} title="Ctrl+C" />
             </div>
@@ -1183,6 +1328,13 @@ export default function EditorTexto() {
               <div style={sLinha}>
                 <Btn icone="•≡" ativo={estado.insertUnorderedList} onClick={() => cmd("insertUnorderedList")} title="Marcadores" />
                 <Btn icone="1≡" ativo={estado.insertOrderedList} onClick={() => cmd("insertOrderedList")} title="Numeração" />
+                <Menu title="Formato da numeração (Tab / Shift+Tab mudam o nível)" itens={[
+                  ["1.  2.  3.", () => formatoNumeracao("decimal")],
+                  ["1.  1.1.  1.1.1.  (cláusulas)", () => formatoNumeracao("juridico")],
+                  ["1.  a)  i)", () => formatoNumeracao("alfa")],
+                  ["I.  A.  1.", () => formatoNumeracao("romano")],
+                  ["a)  b)  c)", () => formatoNumeracao("letras")],
+                ]} />
                 <Btn icone="⇤" onClick={() => cmd("outdent")} title="Diminuir recuo" />
                 <Btn icone="⇥" onClick={() => cmd("indent")} title="Aumentar recuo" />
                 <select data-sem-foco style={{ ...sSelect, width: 82 }} value="" onChange={(e) => estiloParagrafo("textIndent", e.target.value)} title="Recuo da primeira linha">
@@ -1199,6 +1351,8 @@ export default function EditorTexto() {
                   <option value="" disabled>↕</option>
                   {["1", "1.15", "1.5", "2"].map((v) => <option key={v} value={v}>{v.replace(".", ",")}</option>)}
                 </select>
+                <Menu icone="▢" title="Bordas do parágrafo" itens={[["Borda inferior", () => bordaParagrafo("inferior")], ["Borda superior", () => bordaParagrafo("superior")], ["Caixa (todas as bordas)", () => bordaParagrafo("caixa")], ["Sem borda", () => bordaParagrafo("nenhuma")], ["Sem sombreamento", () => sombreamentoParagrafo("")]]} />
+                <label style={sCor} title="Sombreamento do parágrafo">▤<input type="color" defaultValue="#eeeeee" onChange={(e) => sombreamentoParagrafo(e.target.value)} style={sInputCor} /></label>
                 <select data-sem-foco style={{ ...sSelect, width: 82 }} value="" onChange={(e) => estiloParagrafo("marginBottom", e.target.value)} title="Espaço depois do parágrafo">
                   <option value="" disabled>¶ depois</option>
                   {["0pt", "6pt", "12pt", "18pt"].map((v) => <option key={v} value={v}>{v.replace("pt", " pt")}</option>)}
@@ -1275,6 +1429,17 @@ export default function EditorTexto() {
               <option value="centro">Rodapé, centralizado</option>
               <option value="xdey">"Página X de Y"</option>
             </select>
+            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, alignSelf: "center", cursor: "pointer" }} title="Cabeçalho e rodapé próprios na primeira página (ex.: timbre só na folha de rosto). O número de página não aparece na 1ª página.">
+              <input type="checkbox" checked={!!atual.primeiraDiferente} onChange={(e) => mudarDoc({ primeiraDiferente: e.target.checked })} />1ª página diferente
+            </label>
+          </Grupo>
+          <Grupo titulo="Texto">
+            <Menu grande icone="📅" rotulo="Data" title="Inserir a data de hoje" itens={[
+              [textoData("extenso"), () => inserirSimbolo(textoData("extenso"))],
+              [textoData("curta"), () => inserirSimbolo(textoData("curta"))],
+              [textoData("semana"), () => inserirSimbolo(textoData("semana"))],
+              [textoData("local"), () => inserirSimbolo(textoData("local"))],
+            ]} />
           </Grupo>
           <Grupo titulo="Símbolos">
             <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 24px)", gap: 2 }}>
@@ -1441,8 +1606,8 @@ export default function EditorTexto() {
               onInput={() => mudarDoc({ cabecalho: cab.current.innerHTML })} style={{ width: "100%", fontFamily: `'${estilos.normal.fonte}', sans-serif` }} />
           </div>
           <div style={{ position: "relative", flex: 1 }}>
-            <div ref={editor} className={"ed-texto" + (mostrarMarcas ? "" : " sem-marcas")} contentEditable suppressContentEditableWarning spellCheck lang="pt-BR"
-              onInput={salvarHtml} onClick={cliqueEditor} onMouseDown={mouseDownEditor} onMouseMove={mouseMoveEditor} onContextMenu={menuContexto}
+            <div ref={editor} className={"ed-texto" + (mostrarMarcas ? "" : " sem-marcas") + (pincel ? " com-pincel" : "")} contentEditable suppressContentEditableWarning spellCheck lang="pt-BR"
+              onInput={salvarHtml} onClick={cliqueEditor} onMouseUp={soltarPincel} onMouseDown={mouseDownEditor} onMouseMove={mouseMoveEditor} onContextMenu={menuContexto}
               style={{ minHeight: alturaUtil, position: "relative" }} />
             {ordemNotas.length > 0 && (
               <div className="ed-notas" style={{ marginTop: 12, paddingTop: 4, borderTop: "1px solid #888", width: "100%", fontFamily: `'${estilos.normal.fonte}', serif` }}>
@@ -1472,6 +1637,18 @@ export default function EditorTexto() {
             )}
           </div>
         </div>
+        {atual.primeiraDiferente && (
+          <div style={{ width: 250, flex: "none", background: "#fbf8f1", border: "1px solid rgba(0,0,0,0.15)", borderRadius: 6, padding: 10, fontFamily: FONTE_UI, fontSize: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.12)" }}>
+            <div style={{ fontWeight: 600, color: COR_TITULO, marginBottom: 6 }}>Primeira página diferente</div>
+            <div style={{ color: "#666", marginBottom: 8, lineHeight: 1.35 }}>Na página o cabeçalho e o rodapé são os das <b>demais páginas</b>. Aqui ficam os da <b>1ª página</b> (em branco = sem cabeçalho/rodapé nela).</div>
+            {[["cabecalho1", "Cabeçalho da 1ª página"], ["rodape1", "Rodapé da 1ª página"]].map(([campo, rotulo]) => (
+              <div key={campo} style={{ marginBottom: 8 }}>
+                <div style={{ color: "#555", marginBottom: 3 }}>{rotulo}</div>
+                <AreaPrimeira campo={campo} html={atual[campo] || ""} docId={atual.id} mudar={(v) => mudarDoc({ [campo]: v })} fonte={estilos.normal.fonte} />
+              </div>
+            ))}
+          </div>
+        )}
         {(Object.keys(comentarios).length > 0 || autoresRev.length > 0 || atual.controlar) && (
           <PainelRevisao zoom={zoom / 100} editor={editor.current} pagina={pagRef.current} comentarios={comentarios} versao={atual.html} quebras={quebras}
             ativo={comAtivo} setAtivo={setComAtivo} novo={comNovo} setNovo={setComNovo} autor={autor} mostrarMarcas={mostrarMarcas}
@@ -1574,6 +1751,13 @@ function MolduraImagem({ zoom = 1, img, base, redimensionar, posicionar, origina
 }
 
 // Texto de uma nota de rodapé (editável; o HTML só é recarregado ao trocar de nota/documento).
+function AreaPrimeira({ campo, html, docId, mudar, fonte }) {
+  const ref = useRef(null);
+  useEffect(() => { if (ref.current && ref.current.innerHTML !== html) ref.current.innerHTML = html; }, [campo, docId]);
+  return <div ref={ref} className="ed-area" data-area={campo} contentEditable suppressContentEditableWarning spellCheck lang="pt-BR" data-vazio="(em branco)"
+    onInput={() => mudar(ref.current.innerHTML)} style={{ background: "#fff", border: "1px solid #d0c8b6", minHeight: 40, padding: 6, fontSize: "11pt", fontFamily: `'${fonte}', sans-serif`, color: "#111" }} />;
+}
+
 function NotaTexto({ id, html, docId, mudar }) {
   const ref = useRef(null);
   useEffect(() => { if (ref.current && ref.current.innerHTML !== html) ref.current.innerHTML = html || "<p><br></p>"; }, [id, docId]);
