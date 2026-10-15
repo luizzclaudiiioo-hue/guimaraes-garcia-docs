@@ -11,11 +11,18 @@ const LARGURA_PAGINA = 794; // A4 (21cm) em px
 
 // Os modelos usam "Arial Nova Cond" (fonte do Office). Se o aparelho não tiver,
 // tenta Arial Narrow e, por fim, a Archivo Narrow que vai junto com o app.
+// Cada variação aponta para o arquivo dela ("Arial Nova Cond Bold" etc.): apontar o
+// negrito para a fonte normal instalada fazia o negrito sumir no PDF.
 function cssFontes() {
   const abs = (u) => new URL(u, window.location.href).href;
-  const face = (url, peso, estilo) => `@font-face { font-family: "Arial Nova Cond"; font-weight: ${peso}; font-style: ${estilo};
-    src: local("Arial Nova Cond"), local("Arial Narrow"), url("${abs(url)}") format("woff2"); }`;
-  return [face(fonte400, 400, "normal"), face(fonte400i, 400, "italic"), face(fonte700, 700, "normal"), face(fonte700i, 700, "italic")].join("\n");
+  const face = (url, peso, estilo, sufixo) => {
+    const locais = sufixo
+      ? [`Arial Nova Cond ${sufixo}`, `ArialNovaCond-${sufixo.replace(" ", "")}`, `ArialNova-Cond${sufixo.replace(" ", "")}`, `Arial Narrow ${sufixo}`, `ArialNarrow-${sufixo.replace(" ", "")}`]
+      : ["Arial Nova Cond", "ArialNovaCond", "ArialNova-Cond", "Arial Narrow", "ArialNarrow"];
+    return `@font-face { font-family: "Arial Nova Cond"; font-weight: ${peso}; font-style: ${estilo};
+    src: ${locais.map((n) => `local("${n}")`).join(", ")}, url("${abs(url)}") format("woff2"); }`;
+  };
+  return [face(fonte400, 400, "normal", ""), face(fonte400i, 400, "italic", "Italic"), face(fonte700, 700, "normal", "Bold"), face(fonte700i, 700, "italic", "Bold Italic")].join("\n");
 }
 
 const OPCOES_RENDER = { className: "docx", inWrapper: true, breakPages: true, renderHeaders: true, renderFooters: true };
