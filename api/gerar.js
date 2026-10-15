@@ -195,6 +195,7 @@ export default async function handler(req, res) {
       residencia_propria: 'template_residencia_propria.docx',
       amaisa: 'template_amaisa.docx',
       proprietario: 'template_proprietario.docx',
+      habilitacao: 'template_habilitacao.docx',
     };
     const filename = filenameMap[tipo];
     if (!filename) return res.status(400).json({ error: `Tipo desconhecido: ${tipo}` });
@@ -417,6 +418,20 @@ export default async function handler(req, res) {
       xml = substituirPorIndice(xml, mapa);
     }
 
+    if (tipo === 'habilitacao') {
+      // RED[0]=juízo, [1]=número do processo, [2]=nome do cliente
+      let juizo = (fin.juizo || '').trim().toUpperCase();
+      if (juizo && !/[.]$/.test(juizo)) juizo += '.';
+      xml = substituirPorIndice(xml, [
+        { index: 0, value: juizo },
+        { index: 1, value: (fin.numeroProcesso || '').trim() },
+        { index: 2, value: d.nome.trim().toUpperCase() },
+      ]);
+      // "já qualificada" no modelo: no masculino vira "qualificado".
+      if (fin.genero === 'masculino') xml = xml.replace(/qualificada/, 'qualificado');
+      xml = xml.replace(/<w:color w:val="FF0000"\/>/g, ''); // marca de parágrafo ainda vermelha
+    }
+
     zip.file('word/document.xml', xml);
     const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
     const nomesArquivo = {
@@ -427,6 +442,7 @@ export default async function handler(req, res) {
       residencia_propria: 'Declaracao_Residencia_',
       amaisa: 'Declaracao_Amaisa_',
       proprietario: 'Declaracao_Proprietario_',
+      habilitacao: 'Peticao_Habilitacao_',
     };
     const nomeArq = (nomesArquivo[tipo] || 'Documento_') + d.nome.replace(/\s+/g,'_') + '.docx';
 
