@@ -45,8 +45,17 @@ const TAMANHOS = [8, 9, 10, 10.5, 11, 12, 13, 14, 16, 18, 20, 24, 28, 36];
 // Arial Narrow (e a Arial Nova Cond dos modelos) nem sempre estão instaladas: na tela,
 // usa a do computador se houver e, se não, a Archivo Narrow que vai junto com o app.
 // No .docx o nome gravado continua sendo o original, e o Word usa a fonte verdadeira.
-const CSS_FONTES = ["Arial Narrow", "Arial Nova Cond"].flatMap((nome) => [[fonte400, 400, "normal"], [fonte400i, 400, "italic"], [fonte700, 700, "normal"], [fonte700i, 700, "italic"]]
-  .map(([url, peso, estilo]) => `@font-face { font-family: "${nome}"; font-weight: ${peso}; font-style: ${estilo}; src: local("${nome}"), local("Arial Narrow"), url("${url}") format("woff2"); }`)).join("\n");
+// Cada variação aponta para o arquivo certo (ex.: "Arial Narrow Bold"); apontar o negrito
+// para a Arial Narrow normal fazia o negrito sumir em computadores com a fonte instalada.
+const VARIACOES = [[fonte400, 400, "normal", ""], [fonte400i, 400, "italic", "Italic"], [fonte700, 700, "normal", "Bold"], [fonte700i, 700, "italic", "Bold Italic"]];
+const CSS_FONTES = [["Arial Narrow", "ArialNarrow"], ["Arial Nova Cond", "ArialNova-Cond"]].flatMap(([nome, ps]) => VARIACOES.map(([url, peso, estilo, sufixo]) => {
+  const locais = [
+    local(sufixo ? `${nome} ${sufixo}` : nome), local(sufixo ? `${ps}-${sufixo.replace(" ", "")}` : ps),
+    local(sufixo ? `Arial Narrow ${sufixo}` : "Arial Narrow"), local(sufixo ? `ArialNarrow-${sufixo.replace(" ", "")}` : "ArialNarrow"),
+  ];
+  return `@font-face { font-family: "${nome}"; font-weight: ${peso}; font-style: ${estilo}; src: ${[...new Set(locais)].join(", ")}, url("${url}") format("woff2"); }`;
+})).join("\n");
+function local(n) { return `local("${n}")`; }
 
 const sBarra = { display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center", padding: 8, background: "#f4f1ea", border: "1px solid rgba(0,0,0,0.12)", borderRadius: "10px 10px 0 0", position: "sticky", top: 0, zIndex: 5 };
 const sBotao = (ativo) => ({ minWidth: 32, height: 30, padding: "0 8px", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6, background: ativo ? "rgba(154,110,30,0.2)" : "#fff", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif", color: "#2a2a2a", whiteSpace: "nowrap" });
