@@ -226,8 +226,11 @@ const CSS_PAGINA = `
 .ed-texto span.tab { display: inline-block; white-space: pre; text-indent: 0; }
 .ed-texto img { max-width: 100%; }
 .ed-area { font-size: 10pt; line-height: 1.3; min-height: 1.2em; outline: none; border: 1px dashed transparent; border-radius: 4px; padding: 2px 4px; }
-.ed-area:hover, .ed-area:focus { border-color: #d8cfb8; }
-.ed-area:empty::before { content: attr(data-vazio); color: #b9b2a3; }
+.ed-area:not(.ed-cabrod):hover, .ed-area:not(.ed-cabrod):focus { border-color: #d8cfb8; }
+.ed-area:not(.ed-cabrod):empty::before { content: attr(data-vazio); color: #b9b2a3; }
+.ed-cabrod { cursor: text; color: #666; }
+.ed-cabrod.ativa { border-color: #c9b17a; background: #fffcf3; color: inherit; }
+.ed-cabrod.ativa:empty::before { content: attr(data-vazio); color: #b9b2a3; }
 .ed-area p { margin: 0; }
 `;
 
@@ -288,6 +291,8 @@ export default function EditorTexto() {
   const [contagem, setContagem] = useState(false);
   const [mostrarQuebras, setMostrarQuebras] = useState(true);
   const [mostrarGrade, setMostrarGrade] = useState(true);
+  const ultimaSelecao = useRef(null); // último ponto do texto onde o cursor esteve (a régua usa)
+  const [areaAtiva, setAreaAtiva] = useState(null); // "cab" | "rod" enquanto o cabeçalho/rodapé está sendo editado
   const [mostrarRegua, setMostrarRegua] = useState(() => ler("editorTexto.regua", true));
   const [fundoEscuro, setFundoEscuro] = useState(() => ler("editorTexto.fundoEscuro", true));
   const areaRef = useRef(null);
@@ -505,6 +510,56 @@ export default function EditorTexto() {
   const alturaUtilRef = useRef(alturaUtil);
   alturaUtilRef.current = alturaUtil;
   useLayoutEffect(() => { marcarSecoes(); medirPaginas(); }, [alturaUtil, largCm, m.esq, m.dir]);
+
+  // Cabeçalho e rodapé (como no Word): só ficam editáveis com clique duplo na margem ou
+  // pelo botão em Inserir; um clique simples ali leva ao texto.
+  useEffect(() => {
+    const guardar = () => {
+      const s = document.getSelection();
+      if (s.rangeCount && editor.current?.contains(s.anchorNode)) ultimaSelecao.current = s.getRangeAt(0).cloneRange();
+    };
+    document.addEventListener("selectionchange", guardar);
+    return () => document.removeEventListener("selectionchange", guardar);
+  }, []);
+  // Devolve o cursor ao texto (onde estava, ou no começo) para a régua agir no parágrafo certo.
+  function voltarAoTexto() {
+    const ed = editor.current;
+    const s = document.getSelection();
+    if (!ed || (s.rangeCount && ed.contains(s.anchorNode))) return;
+    let r = ultimaSelecao.current;
+    if (!r || !ed.contains(r.startContainer)) { r = document.createRange(); r.selectNodeContents(ed.querySelector("p,h1,h2,h3,li,blockquote") || ed); r.collapse(true); }
+    ed.focus({ preventScroll: true });
+    s.removeAllRanges();
+    s.addRange(r);
+  }
+
+  function ativarArea(qual) {
+    setAreaAtiva(qual);
+    setTimeout(() => {
+      const el = (qual === "cab" ? cab : rod).current;
+      if (!el) return;
+      el.focus();
+      const r = document.createRange();
+      r.selectNodeContents(el);
+      r.collapse(false);
+      const s = document.getSelection();
+      s.removeAllRanges();
+      s.addRange(r);
+    }, 0);
+  }
+  function irParaTexto(noFim) {
+    setAreaAtiva(null);
+    const ed = editor.current;
+    if (!ed) return;
+    ed.focus();
+    const r = document.createRange();
+    // Dentro do primeiro (ou último) parágrafo, não solto no editor.
+    r.selectNodeContents((noFim ? ed.lastElementChild : ed.firstElementChild) || ed);
+    r.collapse(!noFim);
+    const s = document.getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+  }
 
   // ----- alterações -----
 
@@ -1641,18 +1696,18 @@ export default function EditorTexto() {
         </>}
 
         {abaFaixa === "inicio" && <>
-          <Grupo titulo="Área de Transferência">
+          <Grupo titulo="Transferência">
             <Btn grande icone="📋" rotulo="Colar" onClick={colar} title="Colar como texto (Ctrl+V cola mantendo a formatação)" />
             <div style={sColuna}>
-              <Btn icone="🖌" rotulo="Pincel" ativo={!!pincel} onClick={pegarFormato} title="Pincel de formatação: copia a formatação do trecho onde está o cursor para o próximo texto que você selecionar" />
-              <Btn icone="✂" rotulo="Recortar" onClick={() => cmd("cut")} title="Ctrl+X" />
-              <Btn icone="⧉" rotulo="Copiar" onClick={() => cmd("copy")} title="Ctrl+C" />
+              <Btn icone="🖌" ativo={!!pincel} onClick={pegarFormato} title="Pincel de formatação: copia a formatação do trecho onde está o cursor para o próximo texto que você selecionar (Esc cancela)" />
+              <Btn icone="✂" onClick={() => cmd("cut")} title="Recortar (Ctrl+X)" />
+              <Btn icone="⧉" onClick={() => cmd("copy")} title="Copiar (Ctrl+C)" />
             </div>
           </Grupo>
           <Grupo titulo="Fonte">
             <div style={sColuna}>
               <div style={sLinha}>
-                <select data-sem-foco style={{ ...sSelect, width: 132 }} defaultValue="" onChange={(e) => { cmd("fontName", e.target.value); e.target.value = ""; }} title="Fonte">
+                <select data-sem-foco style={{ ...sSelect, width: 118 }} defaultValue="" onChange={(e) => { cmd("fontName", e.target.value); e.target.value = ""; }} title="Fonte">
                   <option value="" disabled>{estilos.normal.fonte}</option>
                   {FONTES.map((f) => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
                 </select>
@@ -1691,26 +1746,20 @@ export default function EditorTexto() {
                 ]} />
                 <Btn icone="⇤" onClick={() => cmd("outdent")} title="Diminuir recuo" />
                 <Btn icone="⇥" onClick={() => cmd("indent")} title="Aumentar recuo" />
-                <select data-sem-foco style={{ ...sSelect, width: 82 }} value="" onChange={(e) => estiloParagrafo("textIndent", e.target.value)} title="Recuo da primeira linha">
-                  <option value="" disabled>Recuo ⇥</option>
-                  <option value="0cm">Nenhum</option><option value="1.25cm">1,25 cm</option><option value="2.5cm">2,5 cm</option><option value="4cm">4 cm</option>
-                </select>
+                <Menu icone="↦" title="Recuo da primeira linha" itens={[["Nenhum", () => estiloParagrafo("textIndent", "0cm")], ["1,25 cm", () => estiloParagrafo("textIndent", "1.25cm")], ["2,5 cm", () => estiloParagrafo("textIndent", "2.5cm")], ["4 cm", () => estiloParagrafo("textIndent", "4cm")]]} />
               </div>
               <div style={sLinha}>
                 <Btn icone="⯇≡" onClick={() => cmd("justifyLeft")} title="Alinhar à esquerda (Ctrl+L)" />
                 <Btn icone="≡" onClick={() => cmd("justifyCenter")} title="Centralizar (Ctrl+E)" />
                 <Btn icone="≡⯈" onClick={() => cmd("justifyRight")} title="Alinhar à direita (Ctrl+R)" />
                 <Btn icone="☰" onClick={() => cmd("justifyFull")} title="Justificar (Ctrl+J)" />
-                <select data-sem-foco style={{ ...sSelect, width: 62 }} value="" onChange={(e) => estiloParagrafo("lineHeight", e.target.value)} title="Espaçamento entre linhas">
+                <select data-sem-foco style={{ ...sSelect, width: 50 }} value="" onChange={(e) => estiloParagrafo("lineHeight", e.target.value)} title="Espaçamento entre linhas">
                   <option value="" disabled>↕</option>
                   {["1", "1.15", "1.5", "2"].map((v) => <option key={v} value={v}>{v.replace(".", ",")}</option>)}
                 </select>
                 <Menu icone="▢" title="Bordas do parágrafo" itens={[["Borda inferior", () => bordaParagrafo("inferior")], ["Borda superior", () => bordaParagrafo("superior")], ["Caixa (todas as bordas)", () => bordaParagrafo("caixa")], ["Sem borda", () => bordaParagrafo("nenhuma")], ["Sem sombreamento", () => sombreamentoParagrafo("")]]} />
                 <label style={sCor} title="Sombreamento do parágrafo">▤<input type="color" defaultValue="#eeeeee" onChange={(e) => sombreamentoParagrafo(e.target.value)} style={sInputCor} /></label>
-                <select data-sem-foco style={{ ...sSelect, width: 82 }} value="" onChange={(e) => estiloParagrafo("marginBottom", e.target.value)} title="Espaço depois do parágrafo">
-                  <option value="" disabled>¶ depois</option>
-                  {["0pt", "6pt", "12pt", "18pt"].map((v) => <option key={v} value={v}>{v.replace("pt", " pt")}</option>)}
-                </select>
+                <Menu icone="¶" title="Espaço depois do parágrafo" itens={["0pt", "6pt", "12pt", "18pt"].map((v) => [v.replace("pt", " pt"), () => estiloParagrafo("marginBottom", v)])} />
               </div>
             </div>
           </Grupo>
@@ -1720,19 +1769,19 @@ export default function EditorTexto() {
                 const ativo = (["h1", "h2", "h3", "blockquote"].includes(estado.bloco) ? estado.bloco : "p") === tag;
                 return (
                   <button key={tag} onClick={() => cmd("formatBlock", tag)} title={`Estilo ${nome}`}
-                    style={{ width: 56, height: 54, border: `1px solid ${ativo ? GOLD : "#ddd6c6"}`, background: ativo ? "#f3ead6" : "#fff", borderRadius: 3, cursor: "pointer", padding: 3, overflow: "hidden" }}>
-                    <div style={{ fontFamily: `'${e.fonte}'`, fontWeight: e.negrito ? "bold" : "normal", fontStyle: e.italico ? "italic" : "normal", fontSize: Math.min(15, e.tamanho + 1), color: e.cor || "#222", lineHeight: 1.1 }}>AaBb</div>
-                    <div style={{ fontSize: 10, color: "#555", marginTop: 4 }}>{nome}</div>
+                    style={{ width: 47, height: 50, border: `1px solid ${ativo ? GOLD : "#ddd6c6"}`, background: ativo ? "#f3ead6" : "#fff", borderRadius: 3, cursor: "pointer", padding: 3, overflow: "hidden" }}>
+                    <div style={{ fontFamily: `'${e.fonte}'`, fontWeight: e.negrito ? "bold" : "normal", fontStyle: e.italico ? "italic" : "normal", fontSize: Math.min(13, e.tamanho), color: e.cor || "#222", lineHeight: 1.1 }}>AaBb</div>
+                    <div style={{ fontSize: 9.5, color: "#555", marginTop: 4, whiteSpace: "nowrap" }}>{nome}</div>
                   </button>
                 );
               })}
-              <Btn grande icone="⚙" rotulo="Modificar" ativo={painelEstilos} onClick={() => setPainelEstilos((x) => !x)} title="Editar os estilos Normal, Títulos e Citação" />
+              <Btn icone="⚙" ativo={painelEstilos} onClick={() => setPainelEstilos((x) => !x)} title="Modificar os estilos Normal, Títulos e Citação" />
             </div>
           </Grupo>
           <Grupo titulo="Edição">
             <div style={sColuna}>
-              <Btn icone="🔍" rotulo="Localizar" onClick={() => abrirBusca(false)} title="Ctrl+F" />
-              <Btn icone="⇄" rotulo="Substituir" onClick={() => abrirBusca(true)} title="Ctrl+H" />
+              <Btn icone="🔍" onClick={() => abrirBusca(false)} title="Localizar (Ctrl+F)" />
+              <Btn icone="⇄" onClick={() => abrirBusca(true)} title="Substituir (Ctrl+H)" />
             </div>
           </Grupo>
         </>}
@@ -1774,8 +1823,8 @@ export default function EditorTexto() {
           </Grupo>
           <Grupo titulo="Cabeçalho e Rodapé">
             <div style={sColuna}>
-              <Btn icone="▔" rotulo="Cabeçalho" onClick={() => cab.current?.focus()} />
-              <Btn icone="▁" rotulo="Rodapé" onClick={() => rod.current?.focus()} />
+              <Btn icone="▔" rotulo="Cabeçalho" onClick={() => ativarArea("cab")} title="Editar o cabeçalho (ou clique duas vezes na margem de cima)" />
+              <Btn icone="▁" rotulo="Rodapé" onClick={() => ativarArea("rod")} title="Editar o rodapé (ou clique duas vezes na margem de baixo)" />
             </div>
             <select data-sem-foco style={{ ...sSelect, width: 132, alignSelf: "center" }} value={atual.numPag || ""} onChange={(e) => mudarDoc({ numPag: e.target.value })} title="Número de página">
               <option value="">Nº de página: não</option>
@@ -1897,7 +1946,8 @@ export default function EditorTexto() {
             </div>
           </Grupo>
         </>}
-        {mostrarRegua && <Regua editor={editor} pagina={pagRef} area={areaRef} largCm={largCm} m={m} zoom={zoom / 100} versao={atual.html} blocos={blocosSelecionados} salvar={salvarHtml} ajustarTabs={ajustarTabs} />}
+        {mostrarRegua && <Regua editor={editor} pagina={pagRef} area={areaRef} largCm={largCm} m={m} zoom={zoom / 100} versao={atual.html} blocos={blocosSelecionados} salvar={salvarHtml} ajustarTabs={ajustarTabs}
+          ultimaSelecao={ultimaSelecao} voltarAoTexto={voltarAoTexto} mudarMargens={(mg) => mudarDoc({ pagina: { ...pagina, margens: { ...pagina.margens, ...mg } } })} />}
       </div>
       {msg && <p style={{ fontSize: 13, color: GOLD, margin: 0, padding: "6px 10px", background: "#fffaf0", borderBottom: "1px solid #eee", fontFamily: FONTE_UI }}>{msg}</p>}
 
@@ -1961,8 +2011,11 @@ export default function EditorTexto() {
       <div ref={areaRef} style={{ background: fundoEscuro ? COR_FUNDO_ESCURO : "#e9e6df", padding: "24px 12px", overflowX: "auto" }}>
       <div style={{ zoom: zoom / 100, display: "flex", justifyContent: "safe center", alignItems: "flex-start", gap: 14 }}>
         <div ref={pagRef} style={{ position: "relative", background: "#fff", width: `${largCm}cm`, maxWidth: "100%", flex: "none", marginRight: temSecaoLarga ? `${deltaSec}cm` : 0, minHeight: `${altCm}cm`, boxShadow: "0 2px 12px rgba(0,0,0,0.15)", boxSizing: "border-box", padding: `0 ${m.dir}cm 0 ${m.esq}cm`, display: "flex", flexDirection: "column" }}>
-          <div style={{ minHeight: `${m.sup}cm`, display: "flex", alignItems: "flex-end", paddingBottom: "0.3cm", boxSizing: "border-box" }}>
-            <div ref={cab} className="ed-area" contentEditable suppressContentEditableWarning data-vazio="Cabeçalho (clique para escrever)" lang="pt-BR" spellCheck
+          <div onDoubleClick={() => ativarArea("cab")} onMouseDown={(e) => { if (areaAtiva !== "cab") { e.preventDefault(); irParaTexto(false); } }} title={areaAtiva === "cab" ? "" : "Clique duas vezes para editar o cabeçalho"}
+            style={{ minHeight: `${m.sup}cm`, display: "flex", alignItems: "flex-end", paddingBottom: "0.3cm", boxSizing: "border-box" }}>
+            <div ref={cab} className={"ed-area ed-cabrod" + (areaAtiva === "cab" ? " ativa" : "")} contentEditable={areaAtiva === "cab"} suppressContentEditableWarning data-vazio="Cabeçalho (Esc volta ao texto)" lang="pt-BR" spellCheck
+              onMouseDown={(e) => { if (areaAtiva !== "cab") { e.preventDefault(); irParaTexto(false); } }} onBlur={() => setAreaAtiva(null)}
+              onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); irParaTexto(false); } }}
               onInput={() => mudarDoc({ cabecalho: cab.current.innerHTML })} style={{ width: "100%", fontFamily: `'${estilos.normal.fonte}', sans-serif` }} />
           </div>
           <div style={{ position: "relative", flex: 1 }}>
@@ -1990,8 +2043,11 @@ export default function EditorTexto() {
               </div>
             ))}
           </div>
-          <div style={{ minHeight: `${m.inf}cm`, paddingTop: "0.3cm", boxSizing: "border-box" }}>
-            <div ref={rod} className="ed-area" contentEditable suppressContentEditableWarning data-vazio="Rodapé (clique para escrever)" lang="pt-BR" spellCheck
+          <div onDoubleClick={() => ativarArea("rod")} onMouseDown={(e) => { if (areaAtiva !== "rod" && !e.target.closest(".ed-texto,.ed-notas")) { e.preventDefault(); irParaTexto(true); } }} title={areaAtiva === "rod" ? "" : "Clique duas vezes para editar o rodapé"}
+            style={{ minHeight: `${m.inf}cm`, paddingTop: "0.3cm", boxSizing: "border-box" }}>
+            <div ref={rod} className={"ed-area ed-cabrod" + (areaAtiva === "rod" ? " ativa" : "")} contentEditable={areaAtiva === "rod"} suppressContentEditableWarning data-vazio="Rodapé (Esc volta ao texto)" lang="pt-BR" spellCheck
+              onMouseDown={(e) => { if (areaAtiva !== "rod") { e.preventDefault(); irParaTexto(true); } }} onBlur={() => setAreaAtiva(null)}
+              onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); irParaTexto(true); } }}
               onInput={() => mudarDoc({ rodape: rod.current.innerHTML })} style={{ width: "100%", fontFamily: `'${estilos.normal.fonte}', sans-serif` }} />
             {textoNumero && (
               <div style={{ fontSize: "10pt", fontFamily: `'${estilos.normal.fonte}', sans-serif`, textAlign: atual.numPag === "direita" ? "right" : "center", color: "#555", padding: "0 4px" }} title="Número de página (aparece em todas as páginas no Word e na impressão)">
@@ -2118,7 +2174,7 @@ function MolduraImagem({ zoom = 1, img, base, redimensionar, posicionar, origina
 // Recuo da 1ª linha (▽ em cima), recuo deslocado (△ embaixo), recuo esquerdo (▭, move os
 // dois juntos) e recuo direito (△ à direita). Clique na régua cria uma tabulação; arraste
 // a tabulação para fora da régua para apagá-la.
-function Regua({ editor, pagina, area, largCm, m, zoom, versao, blocos, salvar, ajustarTabs }) {
+function Regua({ editor, pagina, area, largCm, m, zoom, versao, blocos, salvar, ajustarTabs, ultimaSelecao, voltarAoTexto, mudarMargens }) {
   const [info, setInfo] = useState(null);
   const [esquerda, setEsquerda] = useState(0); // onde a folha começa, em px dentro da barra
   const ref = useRef(null);
@@ -2141,8 +2197,11 @@ function Regua({ editor, pagina, area, largCm, m, zoom, versao, blocos, salvar, 
   const medir = () => {
     const ed = editor.current;
     const s = document.getSelection();
-    if (!ed || !s.rangeCount || !ed.contains(s.anchorNode)) return;
-    const n = s.anchorNode.nodeType === 3 ? s.anchorNode.parentElement : s.anchorNode;
+    // Fora do texto (ex.: cursor no cabeçalho): mostra o parágrafo onde o cursor esteve por último.
+    const no = s.rangeCount && ed?.contains(s.anchorNode) ? s.anchorNode : ultimaSelecao.current?.startContainer;
+    if (!ed || !no || !ed.contains(no)) return;
+    let n = no.nodeType === 3 ? no.parentElement : no;
+    if (n === ed) n = ed.firstElementChild || ed; // cursor solto no editor: primeiro parágrafo
     const b = n.closest("p,h1,h2,h3,h4,h5,h6,li,blockquote,div:not(.ed-texto)");
     if (!b || !ed.contains(b)) return setInfo(null);
     const z = zoom;
@@ -2172,6 +2231,7 @@ function Regua({ editor, pagina, area, largCm, m, zoom, versao, blocos, salvar, 
     e.preventDefault();
     e.stopPropagation();
     if (!info) return;
+    voltarAoTexto();
     const alvo = blocos();
     if (!alvo.length) return;
     const ini = { ...info, tabs: [...info.tabs] };
@@ -2213,11 +2273,26 @@ function Regua({ editor, pagina, area, largCm, m, zoom, versao, blocos, salvar, 
     window.addEventListener("mouseup", soltar);
   }
 
+  // Margens da página: arrastar a área cinza (como a borda cinza da régua do Word).
+  function arrastarMargem(e, lado) {
+    e.preventDefault();
+    e.stopPropagation();
+    const mover = (ev) => {
+      const v = cmDoMouse(ev, ev.altKey);
+      if (lado === "esq") mudarMargens({ esq: Math.max(0.5, Math.min(v, largCm - m.dir - 3)) });
+      else mudarMargens({ dir: Math.max(0.5, Math.min(largCm - v, largCm - m.esq - 3)) });
+    };
+    const soltar = () => { window.removeEventListener("mousemove", mover); window.removeEventListener("mouseup", soltar); };
+    window.addEventListener("mousemove", mover);
+    window.addEventListener("mouseup", soltar);
+  }
+
   function novaTab(e) {
     e.preventDefault();
     if (!info) return;
     const v = cmDoMouse(e, e.altKey);
     if (v <= info.origem || v >= largCm - m.dir) return;
+    voltarAoTexto();
     const t = Math.round((v - info.origem) * 100) / 100;
     blocos().forEach((b) => {
       const lista = (b.dataset.tabs || "").split(",").map(Number).filter((x) => x > 0 && Math.abs(x - t) > 0.05);
@@ -2234,20 +2309,21 @@ function Regua({ editor, pagina, area, largCm, m, zoom, versao, blocos, salvar, 
     const rel = x - m.esq;
     const inteiro = Math.abs(rel - Math.round(rel)) < 0.01;
     const meio = Math.abs(Math.abs(rel % 1) - 0.5) < 0.01;
-    if (inteiro && Math.round(rel) !== 0) marcas.push(<span key={q} style={{ position: "absolute", left: `${x}cm`, top: 3, transform: "translateX(-50%)", fontSize: 9, color: "#555", fontFamily: "sans-serif", lineHeight: 1 }}>{Math.abs(Math.round(rel))}</span>);
-    else if (!inteiro) marcas.push(<span key={q} style={{ position: "absolute", left: `${x}cm`, top: meio ? 6 : 8, height: meio ? 6 : 2, borderLeft: "1px solid #777" }} />);
+    if (inteiro && Math.round(rel) !== 0) marcas.push(<span key={q} style={{ position: "absolute", left: `${x}cm`, top: 3, transform: "translateX(-50%)", fontSize: 9, color: "#555", fontFamily: "sans-serif", lineHeight: 1, zIndex: 2, pointerEvents: "none" }}>{Math.abs(Math.round(rel))}</span>);
+    else if (!inteiro) marcas.push(<span key={q} style={{ position: "absolute", left: `${x}cm`, top: meio ? 6 : 8, height: meio ? 6 : 2, borderLeft: "1px solid #777", zIndex: 2, pointerEvents: "none" }} />);
   }
   const tri = (cima) => <svg width="11" height="8" style={{ display: "block" }}><path d={cima ? "M0.5 0.5 H10.5 L5.5 7.5 Z" : "M0.5 7.5 H10.5 L5.5 0.5 Z"} fill="#e9e6df" stroke="#555" /></svg>;
+  // Alça com área de clique maior que o desenho (fica fácil de pegar com o mouse).
   const marcador = (x, top, conteudo, tipo, title) => (
-    <div title={title} onMouseDown={(e) => arrastar(e, tipo)} style={{ position: "absolute", left: `${x}cm`, top, transform: "translateX(-50%)", cursor: "ew-resize", lineHeight: 0, zIndex: 2 }}>{conteudo}</div>
+    <div title={title} onMouseDown={(e) => arrastar(e, tipo)} style={{ position: "absolute", left: `${x}cm`, top: top - 3, transform: "translateX(-50%)", cursor: "ew-resize", lineHeight: 0, zIndex: 3, padding: "3px 4px" }}>{conteudo}</div>
   );
   return (
     <div ref={barra} data-sem-foco style={{ flexBasis: "100%", height: Math.round(18 * zoom + 8), position: "relative", margin: "4px -4px 0", background: "#dedad0", borderTop: "1px solid #d0c9b8", overflow: "hidden" }}>
     <div style={{ position: "absolute", left: esquerda / zoom, top: 4 / zoom, zoom }}>
     <div ref={ref} data-regua onMouseDown={novaTab} title="Clique para criar uma tabulação"
       style={{ position: "relative", width: `${largCm}cm`, height: 18, background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,0.25)", cursor: "default", userSelect: "none" }}>
-      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${m.esq}cm`, background: "#cfcabd" }} />
-      <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: `${m.dir}cm`, background: "#cfcabd" }} />
+      <div title="Margem esquerda: arraste para mudar" onMouseDown={(e) => arrastarMargem(e, "esq")} style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${m.esq}cm`, background: "#cfcabd", cursor: "ew-resize", zIndex: 1 }} />
+      <div title="Margem direita: arraste para mudar" onMouseDown={(e) => arrastarMargem(e, "dir")} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: `${m.dir}cm`, background: "#cfcabd", cursor: "ew-resize", zIndex: 1 }} />
       {marcas}
       {info && <>
         {marcador(info.primeira, -1, tri(true), "primeira", "Recuo da primeira linha")}
@@ -2256,7 +2332,7 @@ function Regua({ editor, pagina, area, largCm, m, zoom, versao, blocos, salvar, 
         {marcador(info.dir, 10, tri(false), "direito", "Recuo à direita")}
         {info.tabs.map((t, i) => (
           <div key={i} title="Tabulação (arraste para fora da régua para apagar)" onMouseDown={(e) => arrastar(e, "tab", i)}
-            style={{ position: "absolute", left: `${info.origem + t}cm`, top: 9, width: 7, height: 7, borderLeft: "2px solid #222", borderBottom: "2px solid #222", cursor: "ew-resize", zIndex: 2 }} />
+            style={{ position: "absolute", left: `${info.origem + t}cm`, top: 6, width: 7, height: 7, borderLeft: "2px solid #222", borderBottom: "2px solid #222", cursor: "ew-resize", zIndex: 3, padding: "3px 3px 0 0", backgroundClip: "content-box" }} />
         ))}
       </>}
     </div>
