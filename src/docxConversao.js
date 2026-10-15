@@ -50,6 +50,7 @@ function bytesDeDataUrl(src) {
 // Devolve o .docx como Blob (quem chama decide se grava no arquivo ou baixa).
 export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {}, comentarios = {} }) {
   const d = await import("docx");
+  const { estimatePageNumbersWith } = await import("docx/layout");
   const parse = (h) => new DOMParser().parseFromString(`<div>${h || ""}</div>`, "text/html").body.firstChild;
   const pagina = doc.pagina || PAGINA_PADRAO;
   const est = estilosDe(doc);
@@ -281,6 +282,7 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {}, c
         // Sumário: campo do Word (ele calcula os números de página ao abrir).
         fecharSoltos();
         temSumario = true;
+        out.push(new d.Paragraph({ alignment: d.AlignmentType.CENTER, spacing: { after: 120 }, indent: { firstLine: 0 }, children: [new d.TextRun({ text: "Sumário", bold: true, size: 28 })] }));
         out.push(new d.TableOfContents("Sumário", { hyperlink: true, headingStyleRange: "1-3" }));
       } else if (tag === "HR") {
         fecharSoltos();
@@ -374,7 +376,11 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, notas = {}, c
         };
       }),
     } : undefined,
-    features: temSumario ? { updateFields: true } : undefined,
+    // Sumário já gravado com os números de página calculados (o Word não precisa perguntar
+    // se deve atualizar os campos ao abrir; clique direito > Atualizar campo recalcula).
+    // Páginas do sumário: medidas com as fontes do navegador (a Arial Narrow não está nas
+    // tabelas da biblioteca); guess segue estimando onde o cálculo exato não alcança.
+    pageNumbers: temSumario ? estimatePageNumbersWith({ measureWidth: await medidorDeTexto(html, est), guess: true }) : undefined,
     sections: [{
       properties: {
         page: {
@@ -516,7 +522,8 @@ function inlinarEstilos(orig, copia) {
     const cor = corHex(st.color);
     if (cor && cor !== (bloco || !pai ? "000000" : corHex(pai.color))) decl.push(`color:#${cor}`);
     if (!bloco && corHex(st.backgroundColor)) decl.push(`background-color:#${corHex(st.backgroundColor)}`);
-    for (const a of [...c.attributes]) if (!["href", "src", "colspan", "rowspan", "data-com-ini", "data-com-fim"].includes(a.name)) c.removeAttribute(a.name);
+    const nivelTitulo = tag === "P" && /(?:^|\s)docx_(?:heading|t[ií]?tulo)([1-3])(?:\s|$)/i.exec(o.className || "");
+    for (const a of [...c.attributes]) if (!["href", "src", "colspan", "rowspan", "data-com-ini", "data-com-fim", "data-sumario"].includes(a.name)) c.removeAttribute(a.name);
     if (tag === "INS" || tag === "DEL") {
       // Riscado/sublinhado e cor das marcações vêm do editor, não do arquivo.
       for (let k = decl.length - 1; k >= 0; k--) if (/^(text-decoration|color):/.test(decl[k])) decl.splice(k, 1);
@@ -534,6 +541,13 @@ function inlinarEstilos(orig, copia) {
     if (tag === "TABLE") decl.push("border-collapse:collapse", "width:100%", "table-layout:fixed");
     if (tag === "COL" && (o.style.width || o.getAttribute("width"))) decl.push(`width:${o.style.width || o.getAttribute("width") + "px"}`);
     if (decl.length) c.setAttribute("style", decl.join(";"));
+    // Parágrafo com estilo "Título 1/2/3" do Word vira título de verdade (o sumário depende disso).
+    if (nivelTitulo) {
+      const h = document.createElement("h" + nivelTitulo[1]);
+      if (c.getAttribute("style")) h.setAttribute("style", c.getAttribute("style"));
+      h.append(...c.childNodes);
+      c.replaceWith(h);
+    }
     if (bloco && tag !== "TD" && tag !== "TH") {
       // No Word a altura de uma linha em branco vem da fonte do parágrafo; o HTML não traz
       // essa informação, então usamos a do último texto visto.
@@ -587,6 +601,7 @@ export async function docxParaHtml(buffer) {
     const secoes = [...caixa.querySelectorAll("section")];
     await prepararRevisoes(buffer, caixa);
     const comentarios = prepararComentarios(caixa);
+    prepararSumario(caixa);
     if (!secoes.length) throw new Error("Documento vazio.");
     // Página e margens da primeira seção
     const st = getComputedStyle(secoes[0]);
@@ -625,6 +640,7 @@ export async function docxParaHtml(buffer) {
       }
     }
     juntar.querySelectorAll("[data-com-ini],[data-com-fim]").forEach((x) => x.remove());
+    juntar.querySelectorAll("[data-sumario]").forEach((x) => { x.className = "sumario"; x.setAttribute("contenteditable", "false"); x.innerHTML = ""; });
     for (const id of Object.keys(comentarios)) if (!juntar.querySelector(`[data-c="${id}"]`)) delete comentarios[id];
     const cabecalho = converterArea(secoes[0].querySelector("header"));
     const rodape = converterArea(secoes[0].querySelector("footer"));
@@ -687,4 +703,40 @@ function prepararComentarios(caixa) {
     c.replaceWith(sp);
   }
   return comentarios;
+}
+
+// Mede a largura do texto (em pontos) com as fontes que o navegador tem, para estimar em
+// que página cada título cai.
+async function medidorDeTexto(html, est) {
+  const familias = new Set(Object.values(est).map((e) => e.fonte));
+  for (const m of String(html).matchAll(/font-family:\s*(?:&quot;|["'])?([^;"'&]+)/g)) familias.add(m[1].trim());
+  for (const m of String(html).matchAll(/face="([^"]+)"/g)) familias.add(m[1]);
+  await Promise.all([...familias].flatMap((f) => [`11pt "${f}"`, `bold 11pt "${f}"`, `italic 11pt "${f}"`].map((x) => document.fonts.load(x).catch(() => null))));
+  const ctx = document.createElement("canvas").getContext("2d");
+  const cache = new Map();
+  return (texto, { name, size, bold, italic }) => {
+    const fonte = `${italic ? "italic " : ""}${bold ? "bold " : ""}${(size * 4) / 3}px "${name}", sans-serif`;
+    const chave = fonte + "\n" + texto;
+    if (!cache.has(chave)) {
+      ctx.font = fonte;
+      cache.set(chave, ctx.measureText(texto).width * 0.75);
+    }
+    return cache.get(chave);
+  };
+}
+
+// Sumário do Word (parágrafos com estilo "Sumário 1/2/3", em inglês "TOC 1/2/3") volta a ser
+// um sumário automático do editor, que se atualiza com os títulos.
+function prepararSumario(caixa) {
+  for (const art of caixa.querySelectorAll("article")) {
+    const linhas = [...art.querySelectorAll(":scope > p")].filter((p) => /(?:^|\s)docx_(?:toc|sum[aá]?rio)[1-9](?:\s|$)/i.test(p.className));
+    if (!linhas.length) continue;
+    // O título "Sumário" logo antes já faz parte do sumário do editor.
+    const antes = linhas[0].previousElementSibling;
+    if (antes && /^\s*sum[aá]rio\s*$/i.test(antes.textContent)) antes.remove();
+    const marca = document.createElement("div");
+    marca.setAttribute("data-sumario", "1");
+    linhas[0].before(marca);
+    linhas.forEach((p) => p.remove());
+  }
 }
