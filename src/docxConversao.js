@@ -269,7 +269,10 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, cabecalho1 = 
     const cols = [...(el.querySelector(":scope > colgroup")?.children || [])].map((c) => parseFloat(c.style.width || c.getAttribute("width")) || 0);
     const soma = cols.reduce((a, b) => a + b, 0);
     const larg = cols.length === n && soma ? cols.map((w) => Math.round((w / soma) * totalTab)) : Array(n).fill(Math.round(totalTab / n));
+    // Linha não se divide entre páginas (como "Permitir quebra de linha entre páginas" desligado
+    // no Word); além de mais legível, deixa calcular os números de página do sumário.
     const linhas = [...el.rows].map((tr) => new d.TableRow({
+      cantSplit: true,
       children: [...tr.cells].map((td) => {
         const conteudo = blocos(td);
         const st = td.style;
@@ -630,9 +633,10 @@ function inlinarEstilos(orig, copia) {
     if (o.classList.contains?.("docx-tab-stop") || /tab-stop/.test(o.className)) {
       // Tabulação: guarda onde o texto seguinte começa como parada do parágrafo (data-tabs,
       // em cm a partir da margem ou da borda da célula), para ficar alinhado como no Word.
-      const cel = o.closest("td,th");
-      const refEl = cel || o.closest("article") || o.closest("section");
-      const refX = refEl ? refEl.getBoundingClientRect().left + (cel ? parseFloat(getComputedStyle(cel).paddingLeft) || 0 : 0) : 0;
+      // O docx-preview mede a parada a partir da borda do parágrafo + o recuo esquerdo dele
+      // (conta o recuo duas vezes); medindo do mesmo jeito, volta a posição gravada no Word.
+      const pOrig = o.closest("p");
+      const refX = pOrig ? pOrig.getBoundingClientRect().left + (parseFloat(getComputedStyle(pOrig).marginLeft) || 0) : 0;
       let parada = Math.round(((o.getBoundingClientRect().right - refX) / CM) * 100) / 100;
       if (Math.abs(parada - Math.round(parada * 4) / 4) < 0.1) parada = Math.round(parada * 4) / 4; // o docx-preview arredonda em pontos
       const bloco = c.parentElement?.closest("p,h1,h2,h3,h4,h5,h6,li,td,th");

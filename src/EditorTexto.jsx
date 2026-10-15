@@ -199,6 +199,7 @@ const CSS_TELA = `
 .ed-texto.sem-marcas ins.rev { text-decoration: none; color: inherit !important; }
 .ed-texto span.coment { background: rgba(255, 213, 79, 0.35); border-bottom: 2px solid #f0b400; }
 .ed-texto.com-pincel { cursor: copy; }
+::highlight(busca) { background-color: #ffd54f; color: inherit; }
 .ed-texto hr.secao { border: 0; border-top: 3px double #9a6e1e; margin: 12pt 0 14pt; overflow: visible; position: relative; }
 .ed-texto hr.secao::after { position: absolute; left: 50%; top: -9px; transform: translateX(-50%); background: #fff; padding: 0 8px; font: 11px sans-serif; color: #9a6e1e; white-space: nowrap; }
 .ed-texto hr.secao[data-orient="paisagem"]::after { content: "Quebra de seção · páginas seguintes em paisagem"; }
@@ -216,6 +217,7 @@ export default function EditorTexto() {
   const [quebras, setQuebras] = useState([]); // posições (px) onde as páginas terminam
   const [pagAtual, setPagAtual] = useState(1);
   const [busca, setBusca] = useState(null); // { termo, novo, caso, info }
+  const achado = useRef(null); // ocorrência atual da busca (destacada sem tirar o foco da caixa)
   const [painelPagina, setPainelPagina] = useState(false);
   const [menu, setMenu] = useState(null); // menu do botão direito: { x, y, td }
   const [seletorTabela, setSeletorTabela] = useState(null); // { l, c } sob o mouse
@@ -581,7 +583,8 @@ export default function EditorTexto() {
     if (!lista.length) return setMsg("Clique no parágrafo (ou selecione o trecho) que deseja ajustar.");
     const linha = "1px solid #000";
     lista.forEach((el) => {
-      for (const lado of ["Top", "Bottom", "Left", "Right"]) el.style[`border${lado}`] = "";
+      el.style.border = "";
+      el.style.removeProperty("border-image");
       el.style.padding = "";
       if (tipo === "inferior") { el.style.borderBottom = linha; el.style.paddingBottom = "2pt"; }
       if (tipo === "superior") { el.style.borderTop = linha; el.style.paddingTop = "2pt"; }
@@ -1359,27 +1362,51 @@ export default function EditorTexto() {
     const el = r.startContainer.parentElement;
     el?.scrollIntoView({ block: "center" });
   }
+  // A ocorrência fica destacada e o cursor continua na caixa de busca: Enter vai para a
+  // próxima (antes o foco ia para o texto e o Enter seguinte apagava a palavra achada).
+  function destacar(r) {
+    achado.current = r;
+    try {
+      if (r && window.Highlight && CSS.highlights) CSS.highlights.set("busca", new Highlight(r));
+      else CSS.highlights?.delete("busca");
+    } catch { /* navegador sem destaque */ }
+    r?.startContainer.parentElement?.scrollIntoView({ block: "center" });
+  }
+  function fecharBusca() {
+    const r = achado.current;
+    destacar(null);
+    setBusca(null);
+    // Como no Word: ao fechar, o trecho achado fica selecionado no texto.
+    if (r && editor.current.contains(r.startContainer) && !r.collapsed) selecionar(r);
+  }
   function localizar(paraTras = false) {
     const { termo, caso } = busca;
     const { lista, nos } = ocorrencias(termo, caso);
-    if (!lista.length) return setBusca((b) => ({ ...b, info: "Nada encontrado" }));
+    if (!lista.length) { destacar(null); return setBusca((b) => ({ ...b, info: "Nada encontrado" })); }
     const s = document.getSelection();
     let pos = posicaoCursor(nos);
-    if (paraTras && s.rangeCount) pos -= s.toString().length;
+    const a = achado.current;
+    if (a && editor.current.contains(a.startContainer)) {
+      const no = (x) => nos.find((y) => y.n === x);
+      pos = paraTras ? (no(a.startContainer)?.ini ?? 0) + a.startOffset : (no(a.endContainer)?.ini ?? 0) + a.endOffset;
+    } else if (paraTras && s.rangeCount) pos -= s.toString().length;
     let i = paraTras ? [...lista].reverse().findIndex((x) => x < pos) : lista.findIndex((x) => x >= pos);
     if (paraTras) i = i < 0 ? lista.length - 1 : lista.length - 1 - i;
     else if (i < 0) i = 0;
-    selecionar(intervalo(nos, lista[i], lista[i] + termo.length));
+    destacar(intervalo(nos, lista[i], lista[i] + termo.length));
     setBusca((b) => ({ ...b, info: `${i + 1} de ${lista.length}` }));
+    campoBusca.current?.focus();
   }
   function iguais(a, b, caso) {
     return caso ? a === b : a.toLocaleLowerCase("pt-BR") === b.toLocaleLowerCase("pt-BR");
   }
   function substituir() {
     const { termo, novo, caso } = busca;
-    const s = document.getSelection();
-    if (s.rangeCount && editor.current.contains(s.anchorNode) && iguais(s.toString(), termo, caso)) {
+    const a = achado.current;
+    if (a && editor.current.contains(a.startContainer) && iguais(a.toString(), termo, caso)) {
+      selecionar(a);
       document.execCommand("insertText", false, novo);
+      achado.current = null;
       salvarHtml();
     }
     localizar();
@@ -1393,6 +1420,7 @@ export default function EditorTexto() {
       document.execCommand("insertText", false, novo);
     }
     salvarHtml();
+    destacar(null);
     setBusca((b) => ({ ...b, info: lista.length ? `${lista.length} substituição(ões) feitas` : "Nada encontrado" }));
   }
   function abrirBusca(substituirTambem) {
@@ -1403,9 +1431,20 @@ export default function EditorTexto() {
   }
 
   function teclas(e) {
-    if (editor.current?.contains(e.target)) teclaTabela(e);
+    const noTexto = editor.current?.contains(e.target);
+    if (noTexto) teclaTabela(e);
+    if (!e.defaultPrevented && e.key === "Escape" && busca) { e.preventDefault(); return fecharBusca(); }
     if (e.defaultPrevented || !(e.ctrlKey || e.metaKey)) return;
     const k = e.key.toLowerCase();
+    // Atalhos do Word (inglês) para alinhamento, quebra de página e tamanho da fonte.
+    if (noTexto && !e.altKey) {
+      const acao = {
+        e: () => cmd("justifyCenter"), j: () => cmd("justifyFull"), r: () => cmd("justifyRight"),
+        enter: () => cmd("insertHTML", "<hr><p><br></p>"),
+        "]": () => tamanhoRelativo(1), "[": () => tamanhoRelativo(-1), ">": () => tamanhoRelativo(1), "<": () => tamanhoRelativo(-1),
+      }[e.shiftKey && (k === "." || k === ",") ? (k === "." ? ">" : "<") : k];
+      if (acao && !(e.shiftKey && /^[ejr]$/.test(k))) { e.preventDefault(); return acao(); }
+    }
     if (k === "s") { e.preventDefault(); salvarDocx(e.shiftKey); }
     if (k === "p") { e.preventDefault(); imprimir(); }
     if (k === "l" || k === "f") { e.preventDefault(); abrirBusca(false); }
@@ -1496,8 +1535,8 @@ export default function EditorTexto() {
                   <option value="" disabled>{estilos.normal.tamanho}</option>
                   {TAMANHOS.map((pt) => <option key={pt} value={pt}>{String(pt).replace(".", ",")}</option>)}
                 </select>
-                <Btn icone="A⁺" onClick={() => tamanhoRelativo(1)} title="Aumentar fonte" />
-                <Btn icone="A⁻" onClick={() => tamanhoRelativo(-1)} title="Diminuir fonte" />
+                <Btn icone="A⁺" onClick={() => tamanhoRelativo(1)} title="Aumentar fonte (Ctrl+])" />
+                <Btn icone="A⁻" onClick={() => tamanhoRelativo(-1)} title="Diminuir fonte (Ctrl+[)" />
                 <Menu icone="Aa" title="Maiúsculas e minúsculas" itens={[["Primeira letra da frase maiúscula", () => trocarCaixa("frase")], ["minúsculas", () => trocarCaixa("min")], ["MAIÚSCULAS", () => trocarCaixa("mai")], ["Colocar Cada Palavra Em Maiúscula", () => trocarCaixa("palavras")]]} />
                 <Btn icone="⌫" onClick={() => cmd("removeFormat")} title="Limpar formatação" />
               </div>
@@ -1533,10 +1572,10 @@ export default function EditorTexto() {
                 </select>
               </div>
               <div style={sLinha}>
-                <Btn icone="⯇≡" onClick={() => cmd("justifyLeft")} title="Alinhar à esquerda (Ctrl+L no Word)" />
-                <Btn icone="≡" onClick={() => cmd("justifyCenter")} title="Centralizar" />
-                <Btn icone="≡⯈" onClick={() => cmd("justifyRight")} title="Alinhar à direita" />
-                <Btn icone="☰" onClick={() => cmd("justifyFull")} title="Justificar" />
+                <Btn icone="⯇≡" onClick={() => cmd("justifyLeft")} title="Alinhar à esquerda (Ctrl+L aqui abre o Localizar)" />
+                <Btn icone="≡" onClick={() => cmd("justifyCenter")} title="Centralizar (Ctrl+E)" />
+                <Btn icone="≡⯈" onClick={() => cmd("justifyRight")} title="Alinhar à direita (Ctrl+R)" />
+                <Btn icone="☰" onClick={() => cmd("justifyFull")} title="Justificar (Ctrl+J)" />
                 <select data-sem-foco style={{ ...sSelect, width: 62 }} value="" onChange={(e) => estiloParagrafo("lineHeight", e.target.value)} title="Espaçamento entre linhas">
                   <option value="" disabled>↕</option>
                   {["1", "1.15", "1.5", "2"].map((v) => <option key={v} value={v}>{v.replace(".", ",")}</option>)}
@@ -1739,11 +1778,11 @@ export default function EditorTexto() {
 
       {busca && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", padding: 8, background: "#fbf8f1", border: "1px solid rgba(0,0,0,0.12)", borderTop: 0 }}>
-          <input ref={campoBusca} placeholder="Localizar" value={busca.termo} onChange={(e) => setBusca({ ...busca, termo: e.target.value, info: "" })}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); localizar(e.shiftKey); } if (e.key === "Escape") setBusca(null); }}
+          <input ref={campoBusca} placeholder="Localizar" value={busca.termo} onChange={(e) => { destacar(null); setBusca({ ...busca, termo: e.target.value, info: "" }); }}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); localizar(e.shiftKey); } if (e.key === "Escape") { e.preventDefault(); fecharBusca(); } }}
             style={{ ...sCampo, width: 200 }} />
           <input placeholder="Substituir por" value={busca.novo} onChange={(e) => setBusca({ ...busca, novo: e.target.value })}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); substituir(); } if (e.key === "Escape") setBusca(null); }}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); substituir(); } if (e.key === "Escape") { e.preventDefault(); fecharBusca(); } }}
             style={{ ...sCampo, width: 200 }} />
           <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 4 }}>
             <input type="checkbox" checked={busca.caso} onChange={(e) => setBusca({ ...busca, caso: e.target.checked, info: "" })} /> Diferenciar maiúsculas
@@ -1753,7 +1792,7 @@ export default function EditorTexto() {
           <button style={sBotao()} onMouseDown={(e) => e.preventDefault()} onClick={substituir} disabled={!busca.termo}>Substituir</button>
           <button style={sBotao()} onMouseDown={(e) => e.preventDefault()} onClick={substituirTudo} disabled={!busca.termo}>Substituir tudo</button>
           <span style={{ fontSize: 12, color: "#666" }}>{busca.info}</span>
-          <button style={{ ...sBotao(), marginLeft: "auto" }} onClick={() => setBusca(null)} title="Fechar (Esc)">×</button>
+          <button style={{ ...sBotao(), marginLeft: "auto" }} onClick={fecharBusca} title="Fechar (Esc)">×</button>
         </div>
       )}
 

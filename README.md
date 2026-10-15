@@ -44,7 +44,9 @@ Além do gerador de documentos e das publicações, o app tem um editor de texto
   recuo da primeira linha; negrito, itálico, fontes, cores, títulos, listas
   em vários níveis (Tab / Shift+Tab; formatos 1. 1.1. 1.1.1., 1. a) i), I. A. 1.),
   bordas e sombreamento de parágrafo, pincel de formatação, data por extenso,
-  links e localizar e substituir (Ctrl+L / Ctrl+H).
+  links e localizar e substituir (Ctrl+L ou Ctrl+F / Ctrl+H). Atalhos do Word: Ctrl+B/I/U,
+  Ctrl+E/R/J (alinhamento), Ctrl+] e Ctrl+[ (tamanho), Ctrl+Enter (quebra de página),
+  Tab / Shift+Tab (tabulação, níveis de lista e células de tabela), Ctrl+P (imprimir).
   - **Tabelas**: seletor de tamanho, menu do botão direito (inserir/excluir linhas
     e colunas, mesclar arrastando, dividir, bordas, sombreamento), largura das
     colunas arrastando, Tab entre células.
