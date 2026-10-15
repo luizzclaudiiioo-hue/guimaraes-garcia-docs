@@ -29,6 +29,8 @@ function novoDoc(nome = "Documento sem título", extra = {}) {
   };
 }
 
+// Montador de páginas (paged.js) carregado na janela de impressão/PDF.
+const pagedUrl = new URL("../node_modules/pagedjs/dist/paged.polyfill.min.js", import.meta.url).href;
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 // Remove scripts e atributos de evento de HTML vindo de fora.
@@ -1095,33 +1097,91 @@ export default function EditorTexto() {
     }
   }
 
-  function imprimir() {
+  // Impressão e PDF: o paged.js monta as páginas de verdade (como o Word) na janela de
+  // visualização: cabeçalho/rodapé em cada página (1ª página diferente), "Página X de Y",
+  // notas no pé da própria página e sumário com os números de página exatos.
+  function imprimir(pdf = false) {
     const w = window.open("", "_blank");
     if (!w) return setMsg("Permita pop-ups para imprimir ou salvar em PDF.");
-    const numero = {
-      direita: `@bottom-right { content: counter(page); font: 10pt "${estilos.normal.fonte}"; }`,
-      centro: `@bottom-center { content: counter(page); font: 10pt "${estilos.normal.fonte}"; }`,
-      xdey: `@bottom-center { content: "Página " counter(page) " de " counter(pages); font: 10pt "${estilos.normal.fonte}"; }`,
-    }[atual.numPag] || "";
-    // Cabeçalho/rodapé em thead/tfoot: o navegador repete em todas as páginas impressas.
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(atual.nome)}</title>
+    const fonteN = `'${estilos.normal.fonte}', sans-serif`;
+    // Corpo: notas viram notas de rodapé do paged.js; sumário aponta para os títulos.
+    const corpo = document.createElement("div");
+    corpo.innerHTML = htmlLimpo().replace(/\u200b/g, "");
+    corpo.querySelectorAll("sup.nota[data-nota]").forEach((sup) => {
+      const n = document.createElement("span");
+      n.className = "nota-pdf";
+      n.innerHTML = (atual.notas?.[sup.dataset.nota] || "").replace(/<\/p>\s*<p[^>]*>/g, "<br>").replace(/<\/?p[^>]*>/g, "");
+      sup.replaceWith(n);
+    });
+    const titulos = [...corpo.querySelectorAll("h1,h2,h3")].filter((h) => !h.closest("[data-sumario]") && h.textContent.trim());
+    titulos.forEach((h, i) => { h.id = `titulo-${i}`; });
+    corpo.querySelectorAll("[data-sumario] [data-alvo]").forEach((item) => {
+      const num = item.lastElementChild;
+      if (num) num.outerHTML = `<a class="sum-pag" href="#titulo-${item.dataset.alvo}"></a>`;
+    });
+    corpo.querySelectorAll("[contenteditable]").forEach((x) => x.removeAttribute("contenteditable"));
+    const numero = atual.numPag
+      ? `<div style="text-align:${atual.numPag === "direita" ? "right" : "center"};font:10pt ${fonteN}">${atual.numPag === "xdey" ? 'Página <span class="pg"></span> de <span class="pgs"></span>' : '<span class="pg"></span>'}</div>`
+      : "";
+    const area = (cls, html) => `<div class="${cls}"><div class="ed-area">${html || ""}</div></div>`;
+    const dif = !!atual.primeiraDiferente;
+    w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(atual.nome)}</title>
       <style>
-        @page { size: ${largCm}cm ${altCm}cm; margin: ${m.sup}cm ${m.dir}cm ${m.inf}cm ${m.esq}cm; ${numero} }
+        @page { size: ${largCm}cm ${altCm}cm; margin: ${m.sup}cm ${m.dir}cm ${m.inf}cm ${m.esq}cm;
+          @top-center { content: element(cabecalho); vertical-align: bottom; padding-bottom: 8pt; }
+          @bottom-center { content: element(rodape); vertical-align: top; padding-top: 8pt; }
+          @footnote { border-top: 0.75pt solid #000; padding-top: 3pt; margin-top: 8pt; max-width: 5cm; } }
+        ${dif ? "@page :first { @top-center { content: element(cabecalho1); } @bottom-center { content: element(rodape1); } }" : ""}
         ${CSS_FONTES.replace(/url\("\//g, `url("${location.origin}/`)}
         body { margin: 0; } ${CSS_PAGINA} ${CSS_LISTAS} ${cssDoc}
-        .sumario { border: 0; padding: 0; } .ed-notas { margin-top: 18pt; border-top: 1px solid #000; padding-top: 4pt; }
-        table.moldura { width: 100%; border-collapse: collapse; } table.moldura > * > tr > td { padding: 0; }
-        .ed-area { border: 0; padding: 0; } .ed-area:empty { display: none; }
-        hr { page-break-after: always; break-after: page; border: 0; margin: 0; }
+        .cab { position: running(cabecalho); } .rod { position: running(rodape); }
+        .cab1 { position: running(cabecalho1); } .rod1 { position: running(rodape1); }
+        .cab, .rod, .cab1, .rod1 { font-family: ${fonteN}; font-size: ${estilos.normal.tamanho}pt; width: 100%; text-align: left; }
+        .ed-area { border: 0; padding: 0; } .ed-area p { margin: 0; text-indent: 0; }
+        .pg::after { content: counter(page); } .pgs::after { content: counter(pages); }
+        .nota-pdf { float: footnote; font: 10pt/1.2 ${fonteN}; text-align: justify; text-indent: 0; }
+        .nota-pdf::footnote-call { content: counter(footnote); vertical-align: super; font-size: 0.65em; line-height: 0; }
+        .nota-pdf::footnote-marker { content: counter(footnote) " "; vertical-align: super; font-size: 0.7em; }
+        .sumario { border: 0; padding: 0; } .sumario a.sum-pag { color: inherit; text-decoration: none; }
+        .sumario a.sum-pag::after { content: target-counter(attr(href), page); }
+        .ed-texto hr { break-after: page; border: 0; margin: 0; }
+        .ed-texto span.coment { background: none !important; }
       </style></head><body>
-      <table class="moldura">
-        ${cab.current.innerHTML ? `<thead><tr><td><div class="ed-area" style="padding-bottom:12pt">${cab.current.innerHTML}</div></td></tr></thead>` : ""}
-        ${rod.current.innerHTML ? `<tfoot><tr><td><div class="ed-area" style="padding-top:12pt">${rod.current.innerHTML}</div></td></tr></tfoot>` : ""}
-        <tbody><tr><td><div class="ed-texto">${htmlLimpo()}</div>${ordemNotas.length ? `<div class="ed-notas">${ordemNotas.map((id, i) => `<div style="display:flex;gap:6px"><sup>${i + 1}</sup><div>${atual.notas?.[id] || ""}</div></div>`).join("")}</div>` : ""}</td></tr></tbody>
-      </table></body></html>`);
+      ${area("cab", cab.current.innerHTML)}${area("rod", rod.current.innerHTML + numero)}
+      ${dif ? area("cab1", atual.cabecalho1) + area("rod1", atual.rodape1) : ""}
+      <div class="ed-texto">${corpo.innerHTML}</div>
+      </body></html>`);
     w.document.close();
-    w.focus();
-    w.print();
+    const barra = `<div style="position:fixed;top:0;left:0;right:0;z-index:10;display:flex;align-items:center;gap:12px;padding:10px 16px;background:#6f5016;color:#fff;font:14px sans-serif;box-shadow:0 2px 6px rgba(0,0,0,0.3)">
+      <b>${esc(atual.nome)}</b><span id="estado-pdf">Montando as páginas…</span><span style="flex:1"></span>
+      <button id="btn-pdf" style="padding:6px 14px;border:0;border-radius:5px;background:#fff;color:#6f5016;font-weight:600;cursor:pointer">${pdf ? "Salvar como PDF" : "Imprimir"}</button></div>`;
+    // Depois que o paged.js monta as páginas: barra no topo e janela de impressão.
+    w.prontoParaImprimir = (total) => {
+      // Só na tela: folhas com sombra sobre fundo escuro, como na visualização de impressão do Word.
+      w.document.body.insertAdjacentHTML("afterbegin", `<style>@media print { #barra-pdf { display: none !important; } }
+        @media screen { html, body { background: #4a5249; } .pagedjs_pages { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 64px 0 24px; }
+        .pagedjs_page { background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,0.35); } }</style><div id="barra-pdf">${barra}</div>`);
+      w.document.getElementById("estado-pdf").textContent = `${total} página${total === 1 ? "" : "s"}${pdf ? ' — na janela de impressão escolha Destino: "Salvar como PDF"' : ""}`;
+      w.document.getElementById("btn-pdf").onclick = () => w.print();
+      w.focus();
+      if (!w.semDialogo) w.print();
+    };
+    const sc = w.document.createElement("script");
+    sc.textContent = `window.PagedConfig = { auto: false };`;
+    w.document.head.appendChild(sc);
+    const pg = w.document.createElement("script");
+    pg.src = new URL(pagedUrl, location.href).href;
+    pg.onload = async () => {
+      try {
+        await w.document.fonts.ready;
+        const fluxo = await w.PagedPolyfill.preview();
+        w.prontoParaImprimir(fluxo.total);
+      } catch (err) {
+        w.document.body.insertAdjacentHTML("afterbegin", `<p style="color:#fff;font:14px sans-serif;padding:16px">Não foi possível montar as páginas (${esc(err.message)}).</p>`);
+      }
+    };
+    pg.onerror = () => w.document.body.insertAdjacentHTML("afterbegin", '<p style="color:#fff;font:14px sans-serif;padding:16px">Não foi possível carregar o montador de páginas.</p>');
+    w.document.head.appendChild(pg);
   }
 
   // ----- localizar e substituir -----
@@ -1274,7 +1334,8 @@ export default function EditorTexto() {
             <Btn grande icone="🗂" rotulo="Salvar como" onClick={() => salvarDocx(true)} title="Salvar uma cópia em outro arquivo (Ctrl+Shift+S)" />
           </Grupo>
           <Grupo titulo="Imprimir">
-            <Btn grande icone="🖨" rotulo="Imprimir / PDF" onClick={imprimir} title="Ctrl+P" />
+            <Btn grande icone="📄" rotulo="Exportar PDF" onClick={() => imprimir(true)} title="Gera o PDF com as páginas como no Word (cabeçalho, rodapé, notas e números de página)" />
+            <Btn grande icone="🖨" rotulo="Imprimir" onClick={() => imprimir()} title="Ctrl+P" />
           </Grupo>
           <Grupo titulo="Gerenciar">
             <Btn grande icone="🗑" rotulo="Excluir" onClick={excluir} title="Excluir este documento do navegador" />

@@ -10,6 +10,7 @@
     "docx-preview": "0.4.1",
     "jszip": "^3.10.1",
     "mammoth": "^1.13.0",
+    "pagedjs": "0.4.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
