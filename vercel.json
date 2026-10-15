@@ -9,6 +9,9 @@
     "api/pdf.js": {
       "maxDuration": 60,
       "includeFiles": "node_modules/@sparticuz/chromium/bin/**"
+    },
+    "api/corrigir.js": {
+      "maxDuration": 60
     }
   },
   "rewrites": [

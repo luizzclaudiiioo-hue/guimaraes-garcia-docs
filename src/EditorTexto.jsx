@@ -1515,6 +1515,122 @@ export default function EditorTexto() {
     }
   }
 
+  // ----- revisão de ortografia e gramática com IA -----
+  // As sugestões entram como alterações controladas do autor "Revisão IA" (texto antigo
+  // riscado, novo sublinhado, motivo no balão): a pessoa aceita ou rejeita cada uma.
+  const [revisandoIA, setRevisandoIA] = useState(false);
+  const AUTOR_IA = "Revisão IA";
+  const BLOCOS_TEXTO = "p,h1,h2,h3,h4,h5,h6,li,blockquote,td,th";
+
+  // Texto do bloco (sem o que foi excluído e sem as chamadas de nota), com o mapa de cada
+  // caractere de volta ao nó de texto; o "limpo" é o que vai para a IA (sem os \u200b).
+  function textoDoBloco(b) {
+    const w = document.createTreeWalker(b, NodeFilter.SHOW_TEXT);
+    const nos = [];
+    let bruto = "";
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      const pai = n.parentElement;
+      if (pai.closest(BLOCOS_TEXTO) !== b || pai.closest("del.rev, sup.nota")) continue;
+      nos.push({ n, ini: bruto.length });
+      bruto += n.data;
+    }
+    let limpo = "";
+    const mapa = [];
+    for (let i = 0; i < bruto.length; i++) if (bruto[i] !== "\u200b") { limpo += bruto[i] === "\t" ? " " : bruto[i]; mapa.push(i); }
+    const ponto = (pos) => {
+      for (let i = nos.length - 1; i >= 0; i--) if (nos[i].ini <= pos) return { n: nos[i].n, o: Math.min(pos - nos[i].ini, nos[i].n.length) };
+      return null;
+    };
+    return { limpo, mapa, ponto, fimBruto: bruto.length };
+  }
+
+  // Marca uma correção como alteração controlada, mexendo só nas palavras que mudam.
+  function aplicarCorrecao(b, { trecho, correcao, motivo }) {
+    const { limpo, mapa, ponto, fimBruto } = textoDoBloco(b);
+    const idx = limpo.indexOf(trecho);
+    if (idx < 0 || trecho === correcao) return false;
+    const pa = trecho.split(/(\s+)/), pb = correcao.split(/(\s+)/);
+    let i = 0;
+    while (i < pa.length - 1 && i < pb.length - 1 && pa[i] === pb[i]) i++;
+    let j = 0;
+    while (j < pa.length - i - 1 && j < pb.length - i - 1 && pa[pa.length - 1 - j] === pb[pb.length - 1 - j]) j++;
+    const pre = pa.slice(0, i).join("").length, suf = pa.slice(pa.length - j).join("").length;
+    const preB = pb.slice(0, i).join("").length, sufB = pb.slice(pb.length - j).join("").length;
+    const velho = trecho.slice(pre, trecho.length - suf), novo = correcao.slice(preB, correcao.length - sufB);
+    const iniL = idx + pre, fimL = idx + trecho.length - suf;
+    const iniB = iniL < mapa.length ? mapa[iniL] : fimBruto;
+    const fimB = fimL > iniL ? mapa[fimL - 1] + 1 : iniB;
+    const a = ponto(iniB), z = ponto(fimB);
+    if (!a || !z) return false;
+    // Marcador no fim do trecho: a inclusão fica logo depois da exclusão.
+    const rFim = document.createRange();
+    rFim.setStart(z.n, z.o);
+    const marca = document.createElement("span");
+    rFim.insertNode(marca);
+    const agora = new Date().toISOString();
+    if (velho) {
+      const r = document.createRange();
+      r.setStart(a.n, a.o);
+      r.setEndBefore(marca);
+      const del = R.marcarExclusao(r, AUTOR_IA);
+      if (del) { del.dataset.motivo = motivo; del.dataset.data = agora; }
+    }
+    if (novo) {
+      const ins = document.createElement("ins");
+      ins.className = "rev";
+      ins.dataset.autor = AUTOR_IA;
+      ins.dataset.data = agora;
+      ins.dataset.motivo = motivo;
+      ins.textContent = novo;
+      marca.replaceWith(ins);
+    } else marca.remove();
+    return true;
+  }
+
+  async function revisarComIA() {
+    if (revisandoIA) return;
+    const ed = editor.current;
+    const s = document.getSelection();
+    const sel = s.rangeCount && !s.isCollapsed && ed.contains(s.anchorNode) ? s.getRangeAt(0) : null;
+    const blocos = [...ed.querySelectorAll(BLOCOS_TEXTO)].filter((b) => !b.closest("[data-sumario]") && (!sel || sel.intersectsNode(b)));
+    const itens = blocos.map((b, id) => ({ id, texto: textoDoBloco(b).limpo })).filter((x) => x.texto.trim().length > 1);
+    if (!itens.length) return setMsg("Não há texto para revisar.");
+    // Partes de até ~12 mil caracteres (o servidor aceita 20 mil por vez).
+    const partes = [[]];
+    let tam = 0;
+    for (const it of itens) {
+      if (tam + it.texto.length > 12000 && partes[partes.length - 1].length) { partes.push([]); tam = 0; }
+      partes[partes.length - 1].push(it);
+      tam += it.texto.length;
+    }
+    setRevisandoIA(true);
+    let marcadas = 0, perdidas = 0;
+    try {
+      for (let k = 0; k < partes.length; k++) {
+        setMsg(`Revisando ortografia e gramática com IA${partes.length > 1 ? ` (parte ${k + 1} de ${partes.length})` : ""}…`);
+        const r = await fetch("/api/corrigir", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ paragrafos: partes[k] }) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || (r.status === 404 ? "a revisão com IA não está disponível aqui" : `erro ${r.status}`));
+        for (const c of j.correcoes || []) {
+          if (c.trecho === c.correcao) continue; // "correção" sem mudança: ignora
+          const b = blocos[c.id];
+          if (b?.isConnected && typeof c.trecho === "string" && typeof c.correcao === "string" && aplicarCorrecao(b, c)) marcadas++;
+          else perdidas++;
+        }
+      }
+      salvarHtml();
+      setMostrarMarcas(true);
+      setMsg(marcadas
+        ? `${marcadas} sugest${marcadas === 1 ? "ão marcada" : "ões marcadas"} como alterações da "${AUTOR_IA}": aceite ou rejeite no painel ao lado (ou em Revisão › Aceitar/Rejeitar todas).${perdidas ? ` ${perdidas === 1 ? "1 sugestão não pôde ser localizada" : `${perdidas} sugestões não puderam ser localizadas`} no texto.` : ""}`
+        : `Nenhum erro de ortografia ou gramática encontrado${sel ? " no trecho selecionado" : ""}.`);
+    } catch (e) {
+      if (marcadas) salvarHtml();
+      setMsg(`Não foi possível concluir a revisão com IA (${e.message}).${marcadas ? ` ${marcadas} sugestões já foram marcadas.` : ""}`);
+    } finally {
+      setRevisandoIA(false);
+    }
+  }
+
   // ----- localizar e substituir -----
 
   function textos() {
@@ -1917,6 +2033,8 @@ export default function EditorTexto() {
 
         {abaFaixa === "revisao" && <>
           <Grupo titulo="Revisão de Texto">
+            <Btn grande icone={revisandoIA ? "⏳" : "✔"} rotulo={revisandoIA ? "Revisando…" : "Ortografia e Gramática (IA)"} ativo={revisandoIA} onClick={revisarComIA}
+              title="Revisa a ortografia e a gramática com IA (o trecho selecionado ou o documento todo). As sugestões entram como alterações para você aceitar ou rejeitar." />
             <Btn grande icone="📊" rotulo="Contar Palavras" onClick={() => setContagem(true)} />
           </Grupo>
           <Grupo titulo="Comentários">
@@ -2518,6 +2636,7 @@ function PainelRevisao({ zoom = 1, editor, pagina, comentarios, versao, quebras,
               <b style={{ color: cor }}>✎ {a.dataset.autor}</b><span style={{ color: "#999" }}>{dataCurta(a.dataset.data)}</span>
             </div>
             <div style={{ marginTop: 3, color: "#333", wordBreak: "break-word" }}>{desc}</div>
+            {(b || a).dataset.motivo && <div style={{ marginTop: 3, color: "#666", fontStyle: "italic" }}>{(b || a).dataset.motivo}</div>}
             <div style={{ display: "flex", gap: 4, marginTop: 5 }} onClick={(e) => e.stopPropagation()}>
               <button style={bt} onClick={() => it.els.forEach((el) => revisar(el, true))}>✓ Aceitar</button>
               <button style={bt} onClick={() => it.els.forEach((el) => revisar(el, false))}>✕ Rejeitar</button>
