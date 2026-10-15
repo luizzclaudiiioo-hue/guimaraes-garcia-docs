@@ -526,6 +526,8 @@ export default function EditorTexto() {
     const ed = editor.current;
     const s = document.getSelection();
     if (!ed || (s.rangeCount && ed.contains(s.anchorNode))) return;
+    const atualEl = s.anchorNode && (s.anchorNode.nodeType === 3 ? s.anchorNode.parentElement : s.anchorNode);
+    if (atualEl?.closest?.('[contenteditable="true"]') && document.activeElement?.isContentEditable) return; // cabeçalho, nota etc.
     let r = ultimaSelecao.current;
     if (!r || !ed.contains(r.startContainer)) { r = document.createRange(); r.selectNodeContents(ed.querySelector("p,h1,h2,h3,li,blockquote") || ed); r.collapse(true); }
     ed.focus({ preventScroll: true });
@@ -578,7 +580,9 @@ export default function EditorTexto() {
   }
 
   function cmd(c, v = null) {
-    editor.current.focus();
+    voltarAoTexto();
+    // No cabeçalho/rodapé ou numa nota, o comando vale lá (não puxa o cursor para o texto).
+    if (!document.activeElement?.isContentEditable) editor.current.focus();
     document.execCommand(c, false, v);
     if (/List$/.test(c)) tirarListasDeParagrafos();
     salvarHtml();
@@ -604,24 +608,38 @@ export default function EditorTexto() {
   // Tamanho em pontos (o comando do navegador só conhece 7 tamanhos fixos): marca a seleção
   // com o tamanho 7 e troca essas marcas por <span style="font-size: Npt">.
   function aplicarTamanho(pt) {
-    editor.current.focus();
+    voltarAoTexto();
+    if (!document.activeElement?.isContentEditable) editor.current.focus();
     const s = document.getSelection();
     if (!s.rangeCount || s.isCollapsed) return setMsg("Selecione o texto para mudar o tamanho.");
     document.execCommand("styleWithCSS", false, false);
     document.execCommand("fontSize", false, "7");
-    editor.current.querySelectorAll('font[size="7"]').forEach((f) => {
+    const raiz = document.activeElement?.isContentEditable ? document.activeElement : editor.current;
+    const novos = [];
+    raiz.querySelectorAll('font[size="7"]').forEach((f) => {
       const sp = document.createElement("span");
       sp.style.fontSize = `${pt}pt`;
       if (f.getAttribute("face")) sp.style.fontFamily = f.getAttribute("face");
       if (f.getAttribute("color")) sp.style.color = f.getAttribute("color");
       sp.append(...f.childNodes);
       f.replaceWith(sp);
+      novos.push(sp);
       // Tamanhos antigos dentro do trecho deixam de valer
       sp.querySelectorAll("[style*='font-size']").forEach((x) => { x.style.fontSize = ""; });
       sp.querySelectorAll("font[size]").forEach((x) => x.removeAttribute("size"));
     });
+    // O trecho continua selecionado (dá para trocar a fonte em seguida, como no Word).
+    if (novos.length) {
+      const r = document.createRange();
+      r.setStartBefore(novos[0]);
+      r.setEndAfter(novos[novos.length - 1]);
+      s.removeAllRanges();
+      s.addRange(r);
+    }
     setMsg("");
-    salvarHtml();
+    if (raiz === cab.current) mudarDoc({ cabecalho: raiz.innerHTML });
+    else if (raiz === rod.current) mudarDoc({ rodape: raiz.innerHTML });
+    else salvarHtml();
   }
 
   // ----- pincel de formatação -----
@@ -793,6 +811,7 @@ export default function EditorTexto() {
   }
 
   function estiloParagrafo(prop, valor) {
+    voltarAoTexto();
     editor.current.focus();
     const lista = blocosSelecionados();
     if (!lista.length) return setMsg("Clique no parágrafo (ou selecione o trecho) que deseja ajustar.");
@@ -1673,7 +1692,7 @@ export default function EditorTexto() {
 
       {/* Faixa de opções */}
       <div style={{ display: "flex", alignItems: "stretch", flexWrap: "wrap", background: COR_FAIXA, borderBottom: "1px solid #d8d2c4", padding: "4px 4px 0", position: "sticky", top: 0, zIndex: 5, fontFamily: FONTE_UI, minHeight: 92 }}
-        onMouseDown={(e) => { if (e.target.closest("button") || e.target.closest("[data-sem-foco]")) e.preventDefault(); }}>
+        onMouseDown={(e) => { if (e.target.closest("select")) return; if (e.target.closest("button") || e.target.closest("[data-sem-foco]")) e.preventDefault(); }}>
         {abaFaixa === "arquivo" && <>
           <Grupo titulo="Documento">
             <Btn grande icone="＋" rotulo="Novo" onClick={() => criar()} />
@@ -1753,10 +1772,7 @@ export default function EditorTexto() {
                 <Btn icone="≡" onClick={() => cmd("justifyCenter")} title="Centralizar (Ctrl+E)" />
                 <Btn icone="≡⯈" onClick={() => cmd("justifyRight")} title="Alinhar à direita (Ctrl+R)" />
                 <Btn icone="☰" onClick={() => cmd("justifyFull")} title="Justificar (Ctrl+J)" />
-                <select data-sem-foco style={{ ...sSelect, width: 50 }} value="" onChange={(e) => estiloParagrafo("lineHeight", e.target.value)} title="Espaçamento entre linhas">
-                  <option value="" disabled>↕</option>
-                  {["1", "1.15", "1.5", "2"].map((v) => <option key={v} value={v}>{v.replace(".", ",")}</option>)}
-                </select>
+                <Menu icone="↕≡" title="Espaçamento entre linhas" itens={[["Simples (1,0)", () => estiloParagrafo("lineHeight", "1")], ["1,15", () => estiloParagrafo("lineHeight", "1.15")], ["1,5 linha", () => estiloParagrafo("lineHeight", "1.5")], ["Duplo (2,0)", () => estiloParagrafo("lineHeight", "2")]]} />
                 <Menu icone="▢" title="Bordas do parágrafo" itens={[["Borda inferior", () => bordaParagrafo("inferior")], ["Borda superior", () => bordaParagrafo("superior")], ["Caixa (todas as bordas)", () => bordaParagrafo("caixa")], ["Sem borda", () => bordaParagrafo("nenhuma")], ["Sem sombreamento", () => sombreamentoParagrafo("")]]} />
                 <label style={sCor} title="Sombreamento do parágrafo">▤<input type="color" defaultValue="#eeeeee" onChange={(e) => sombreamentoParagrafo(e.target.value)} style={sInputCor} /></label>
                 <Menu icone="¶" title="Espaço depois do parágrafo" itens={["0pt", "6pt", "12pt", "18pt"].map((v) => [v.replace("pt", " pt"), () => estiloParagrafo("marginBottom", v)])} />
@@ -1826,7 +1842,7 @@ export default function EditorTexto() {
               <Btn icone="▔" rotulo="Cabeçalho" onClick={() => ativarArea("cab")} title="Editar o cabeçalho (ou clique duas vezes na margem de cima)" />
               <Btn icone="▁" rotulo="Rodapé" onClick={() => ativarArea("rod")} title="Editar o rodapé (ou clique duas vezes na margem de baixo)" />
             </div>
-            <select data-sem-foco style={{ ...sSelect, width: 132, alignSelf: "center" }} value={atual.numPag || ""} onChange={(e) => mudarDoc({ numPag: e.target.value })} title="Número de página">
+            <select style={{ ...sSelect, width: 132, alignSelf: "center" }} value={atual.numPag || ""} onChange={(e) => mudarDoc({ numPag: e.target.value })} title="Número de página">
               <option value="">Nº de página: não</option>
               <option value="direita">Rodapé, à direita</option>
               <option value="centro">Rodapé, centralizado</option>
