@@ -166,6 +166,7 @@ const CSS_PAGINA = `
 .sumario .sum-n2 { padding-left: 1.2em; } .sumario .sum-n3 { padding-left: 2.4em; }
 .ed-texto table { border-collapse: collapse; } .ed-texto td, .ed-texto th { vertical-align: top; }
 .ed-texto hr { border: 0; border-top: 1px dashed #bbb; margin: 8pt 0; }
+.ed-texto span.tab { display: inline-block; white-space: pre; text-indent: 0; }
 .ed-texto img { max-width: 100%; }
 .ed-area { font-size: 10pt; line-height: 1.3; min-height: 1.2em; outline: none; border: 1px dashed transparent; border-radius: 4px; padding: 2px 4px; }
 .ed-area:hover, .ed-area:focus { border-color: #d8cfb8; }
@@ -198,6 +199,10 @@ const CSS_TELA = `
 .ed-texto.sem-marcas ins.rev { text-decoration: none; color: inherit !important; }
 .ed-texto span.coment { background: rgba(255, 213, 79, 0.35); border-bottom: 2px solid #f0b400; }
 .ed-texto.com-pincel { cursor: copy; }
+.ed-texto hr.secao { border: 0; border-top: 3px double #9a6e1e; margin: 12pt 0 14pt; overflow: visible; position: relative; }
+.ed-texto hr.secao::after { position: absolute; left: 50%; top: -9px; transform: translateX(-50%); background: #fff; padding: 0 8px; font: 11px sans-serif; color: #9a6e1e; white-space: nowrap; }
+.ed-texto hr.secao[data-orient="paisagem"]::after { content: "Quebra de seção · páginas seguintes em paisagem"; }
+.ed-texto hr.secao[data-orient="retrato"]::after { content: "Quebra de seção · páginas seguintes em retrato"; }
 `;
 
 export default function EditorTexto() {
@@ -224,6 +229,7 @@ export default function EditorTexto() {
   const [contagem, setContagem] = useState(false);
   const [mostrarQuebras, setMostrarQuebras] = useState(true);
   const [mostrarGrade, setMostrarGrade] = useState(true);
+  const [mostrarRegua, setMostrarRegua] = useState(() => ler("editorTexto.regua", true));
   const [fundoEscuro, setFundoEscuro] = useState(() => ler("editorTexto.fundoEscuro", true));
   const areaRef = useRef(null);
   const [autor, setAutor] = useState(() => ler("editorTexto.autor", ""));
@@ -257,6 +263,13 @@ export default function EditorTexto() {
   const [largCm, altCm] = dimensoes(pagina);
   const m = pagina.margens;
   const alturaUtil = (altCm - m.sup - m.inf) * CM;
+  // Seções na outra orientação (ex.: páginas em paisagem num documento em retrato).
+  const orientBase = pagina.orient === "paisagem" ? "paisagem" : "retrato";
+  const [largOutra, altOutra] = dimensoes({ ...pagina, orient: orientBase === "paisagem" ? "retrato" : "paisagem" });
+  const deltaSec = largOutra - largCm; // quanto a área de texto cresce (ou encolhe) nessas seções
+  const temSecaoLarga = deltaSec > 0 && /<hr[^>]*class="secao"[^>]*data-orient="paisagem"|<hr[^>]*data-orient="paisagem"[^>]*class="secao"/.test(atual.html);
+  const cssSecoes = `.ed-texto > [data-secao]:not(table) { margin-right: ${(-deltaSec).toFixed(2)}cm; }
+.ed-texto > table[data-secao][style*="width: 100%"], .ed-texto > table[data-secao][style*="width:100%"] { width: calc(100% + ${deltaSec.toFixed(2)}cm) !important; }`;
 
   useEffect(() => {
     if (!gravar(CHAVE, docs)) setMsg("Atenção: documento grande demais para ficar salvo no navegador (imagens ocupam muito espaço). Salve em Word (.docx) para não perder.");
@@ -281,6 +294,7 @@ export default function EditorTexto() {
   useEffect(() => {
     if (editor.current) {
       editor.current.innerHTML = atual.html;
+      prepararLayout();
       renumerarNotas();
       // O navegador normaliza o HTML; guardar a versão normalizada evita "alteração" falsa.
       if (editor.current.innerHTML !== atual.html) mudarDoc({ html: editor.current.innerHTML }, false);
@@ -323,6 +337,74 @@ export default function EditorTexto() {
 
   const quebrasRef = useRef([]);
   const medindo = useRef(false);
+  const [faixas, setFaixas] = useState([]); // trechos em seção mais larga (fundo branco extra)
+  const secaoRef = useRef({});
+  secaoRef.current = { base: orientBase, H: alturaUtil, Houtra: (altOutra - m.sup - m.inf) * CM, larga: deltaSec > 0 };
+
+  // Marca os parágrafos das seções na outra orientação (só para a tela; o .docx e o PDF
+  // recalculam a partir das quebras de seção).
+  function marcarSecoes() {
+    const ed = editor.current;
+    if (!ed) return;
+    const { base } = secaoRef.current;
+    let orient = base;
+    for (const f of ed.children) {
+      if (f.matches("hr.secao")) { orient = f.dataset.orient === "paisagem" ? "paisagem" : "retrato"; f.removeAttribute("data-secao"); continue; }
+      const v = orient === base ? null : orient === "paisagem" ? "larga" : "estreita";
+      if (v) { if (f.dataset.secao !== v) f.dataset.secao = v; } else if (f.hasAttribute("data-secao")) f.removeAttribute("data-secao");
+    }
+  }
+
+  // Tabulações: cada <span class="tab"> vai até a próxima parada (as do parágrafo, em
+  // data-tabs, em cm a partir da margem; depois delas, a cada 1,25 cm como no Word).
+  function ajustarTabs(raiz = editor.current) {
+    const tabs = raiz ? [...raiz.querySelectorAll("span.tab")] : [];
+    if (!tabs.length) return;
+    const z = zoomRef.current || 1;
+    tabs.forEach((t) => { t.style.width = "0px"; });
+    for (const t of tabs) {
+      const bloco = t.closest("p,h1,h2,h3,h4,h5,h6,li,blockquote,div:not(.ed-texto):not(.ed-area)") || raiz;
+      const cel = t.closest("td,th");
+      const ref = cel || raiz;
+      const pad = cel ? parseFloat(getComputedStyle(cel).paddingLeft) || 0 : 0;
+      const r0 = ref.getBoundingClientRect().left;
+      const x = (t.getBoundingClientRect().left - r0) / z - pad;
+      const paradas = (bloco.dataset?.tabs || "").split(",").map(Number).filter((v) => v > 0).map((v) => v * CM);
+      // Recuo deslocado (ex.: "1.<tab>Texto") também é uma parada, como no Word.
+      if (parseFloat(getComputedStyle(bloco).textIndent) < 0) paradas.push((bloco.getBoundingClientRect().left - r0) / z - pad);
+      paradas.sort((a, b) => a - b);
+      let alvo = paradas.find((v) => v > x + 0.5);
+      if (alvo === undefined) { const passo = 1.25 * CM; alvo = (Math.floor((x + 0.5) / passo) + 1) * passo; }
+      t.style.width = `${(alvo - x).toFixed(1)}px`;
+    }
+  }
+
+  function prepararLayout() {
+    marcarSecoes();
+    ajustarTabs();
+  }
+
+  function inserirTab() {
+    const s = document.getSelection();
+    if (!s.rangeCount || !editor.current.contains(s.anchorNode)) return;
+    const r = s.getRangeAt(0);
+    r.deleteContents();
+    const sp = document.createElement("span");
+    sp.className = "tab";
+    sp.contentEditable = "false";
+    sp.textContent = "\t";
+    r.insertNode(sp);
+    // Depois da tabulação precisa de um nó de texto para o cursor ficar nele.
+    let depois = sp.nextSibling;
+    if (!depois || depois.nodeType !== 3) { depois = document.createTextNode("\u200b"); sp.after(depois); }
+    s.collapse(depois, depois.data.startsWith("\u200b") ? 1 : 0);
+    salvarHtml();
+  }
+
+  function inserirQuebraSecao(orient) {
+    cmd("insertHTML", `<hr class="secao" data-orient="${orient}"><p><br></p>`);
+    setMsg(orient === "paisagem" ? "As páginas depois da quebra ficam em paisagem. Para voltar ao retrato, insira outra quebra de seção \"Retrato\"." : "");
+  }
   function medirPaginas() {
     if (medindo.current) return;
     medindo.current = true;
@@ -330,11 +412,23 @@ export default function EditorTexto() {
       medindo.current = false;
       const ed = editor.current;
       if (!ed) return;
-      const H = alturaUtilRef.current;
+      const sec = secaoRef.current;
+      let H = sec.H;
       const lista = [];
+      const novasFaixas = [];
+      let faixa = null;
       let inicio = 0;
       for (const filho of ed.children) {
         const topo = filho.offsetTop, fim = topo + filho.offsetHeight;
+        if (filho.matches("hr.secao")) {
+          // Quebra de seção: começa página nova, com a altura da orientação escolhida.
+          if (faixa) faixa.fim = topo;
+          faixa = null;
+          H = filho.dataset.orient === sec.base || (!filho.dataset.orient && sec.base === "retrato") ? sec.H : sec.Houtra;
+          if (sec.larga && filho.dataset.orient === "paisagem") novasFaixas.push((faixa = { topo: fim, fim }));
+          lista.push(fim); inicio = fim; continue;
+        }
+        if (faixa) faixa.fim = fim;
         if (filho.tagName === "HR") { lista.push(fim); inicio = fim; continue; }
         while (fim > inicio + H + 1) {
           // Parágrafo curto que não cabe vai inteiro para a próxima página; longo é dividido.
@@ -343,6 +437,7 @@ export default function EditorTexto() {
           inicio = quebra;
         }
       }
+      setFaixas((a) => (JSON.stringify(a) === JSON.stringify(novasFaixas) ? a : novasFaixas));
       quebrasRef.current = lista;
       atualizarSumarios(lista);
       setQuebras((a) => (a.length === lista.length && a.every((v, i) => Math.abs(v - lista[i]) < 1) ? a : lista));
@@ -350,7 +445,7 @@ export default function EditorTexto() {
   }
   const alturaUtilRef = useRef(alturaUtil);
   alturaUtilRef.current = alturaUtil;
-  useLayoutEffect(() => { medirPaginas(); }, [alturaUtil, largCm, m.esq, m.dir]);
+  useLayoutEffect(() => { marcarSecoes(); medirPaginas(); }, [alturaUtil, largCm, m.esq, m.dir]);
 
   // ----- alterações -----
 
@@ -362,6 +457,7 @@ export default function EditorTexto() {
   const htmlLimpo = () => editor.current.innerHTML.replace(/ data-sel="1"/g, "");
 
   function salvarHtml() {
+    prepararLayout();
     renumerarNotas();
     mudarDoc({ html: htmlLimpo() });
     medirPaginas();
@@ -942,6 +1038,11 @@ export default function EditorTexto() {
         document.execCommand(e.shiftKey ? "outdent" : "indent");
         return salvarHtml();
       }
+      // Tab no texto: tabulação até a próxima parada da régua.
+      if (e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && n0 && editor.current.contains(n0) && !n0.closest("td,th")) {
+        e.preventDefault();
+        return inserirTab();
+      }
     }
     if (imgSel && e.key === "Escape") return setImgSel(null);
     const s = document.getSelection();
@@ -1125,12 +1226,35 @@ export default function EditorTexto() {
       : "";
     const area = (cls, html) => `<div class="${cls}"><div class="ed-area">${html || ""}</div></div>`;
     const dif = !!atual.primeiraDiferente;
+    const areas = area("cab", cab.current.innerHTML) + area("rod", rod.current.innerHTML + numero) + (dif ? area("cab1", atual.cabecalho1) + area("rod1", atual.rodape1) : "");
+    const comSecoes = !!corpo.querySelector(":scope > hr.secao");
+    // Quebras de seção: cada trecho numa caixa; os da outra orientação usam a página "outra".
+    if (comSecoes) {
+      const secoes = [{ orient: orientBase, nos: [] }];
+      for (const n of [...corpo.childNodes]) {
+        if (n.nodeType === 1 && n.matches("hr.secao")) secoes.push({ orient: n.dataset.orient === "paisagem" ? "paisagem" : "retrato", nos: [] });
+        else secoes[secoes.length - 1].nos.push(n);
+      }
+      corpo.innerHTML = "";
+      secoes.forEach((sc, i) => {
+        const caixa = document.createElement("div");
+        caixa.className = sc.orient === orientBase ? "sec-base" : "sec-outra";
+        // Mudança de orientação já começa página nova; mesma orientação precisa da quebra.
+        if (i > 0 && sc.orient === secoes[i - 1].orient) caixa.style.breakBefore = "page";
+        caixa.append(...sc.nos);
+        corpo.appendChild(caixa);
+      });
+      // Cabeçalho/rodapé dentro da 1ª caixa: fora dela a 1ª página sairia sem nome (e em branco).
+      corpo.firstElementChild.insertAdjacentHTML("afterbegin", areas);
+    }
     w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(atual.nome)}</title>
       <style>
         @page { size: ${largCm}cm ${altCm}cm; margin: ${m.sup}cm ${m.dir}cm ${m.inf}cm ${m.esq}cm;
           @top-center { content: element(cabecalho); vertical-align: bottom; padding-bottom: 8pt; }
           @bottom-center { content: element(rodape); vertical-align: top; padding-top: 8pt; }
           @footnote { border-top: 0.75pt solid #000; padding-top: 3pt; margin-top: 8pt; max-width: 5cm; } }
+        @page outra { size: ${largOutra}cm ${altOutra}cm; } @page base { size: ${largCm}cm ${altCm}cm; }
+        .sec-outra { page: outra; } .sec-base { page: base; }
         ${dif ? "@page :first { @top-center { content: element(cabecalho1); } @bottom-center { content: element(rodape1); } }" : ""}
         ${CSS_FONTES.replace(/url\("\//g, `url("${location.origin}/`)}
         body { margin: 0; } ${CSS_PAGINA} ${CSS_LISTAS} ${cssDoc}
@@ -1147,8 +1271,7 @@ export default function EditorTexto() {
         .ed-texto hr { break-after: page; border: 0; margin: 0; }
         .ed-texto span.coment { background: none !important; }
       </style></head><body>
-      ${area("cab", cab.current.innerHTML)}${area("rod", rod.current.innerHTML + numero)}
-      ${dif ? area("cab1", atual.cabecalho1) + area("rod1", atual.rodape1) : ""}
+      ${comSecoes ? "" : areas}
       <div class="ed-texto">${corpo.innerHTML}</div>
       </body></html>`);
     w.document.close();
@@ -1157,6 +1280,12 @@ export default function EditorTexto() {
       <button id="btn-pdf" style="padding:6px 14px;border:0;border-radius:5px;background:#fff;color:#6f5016;font-weight:600;cursor:pointer">${pdf ? "Salvar como PDF" : "Imprimir"}</button></div>`;
     // Depois que o paged.js monta as páginas: barra no topo e janela de impressão.
     w.prontoParaImprimir = (total) => {
+      // O paged.js desenha as páginas da outra orientação, mas imprime tudo num só tamanho:
+      // as páginas "outra" ganham o próprio @page.
+      w.document.head.insertAdjacentHTML("beforeend", `<style>@page outra { size: ${largOutra}cm ${altOutra}cm; margin: 0; }
+        .pagedjs_page.pagedjs_outra_page { page: outra; width: ${largOutra}cm; height: ${altOutra}cm;
+          --pagedjs-width: ${largOutra}cm; --pagedjs-height: ${altOutra}cm; --pagedjs-width-right: ${largOutra}cm; --pagedjs-height-right: ${altOutra}cm;
+          --pagedjs-width-left: ${largOutra}cm; --pagedjs-height-left: ${altOutra}cm; }</style>`);
       // Só na tela: folhas com sombra sobre fundo escuro, como na visualização de impressão do Word.
       w.document.body.insertAdjacentHTML("afterbegin", `<style>@media print { #barra-pdf { display: none !important; } }
         @media screen { html, body { background: #4a5249; } .pagedjs_pages { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 64px 0 24px; }
@@ -1291,7 +1420,7 @@ export default function EditorTexto() {
 
   return (
     <div style={{ fontFamily: FONTE_UI, borderRadius: 10, boxShadow: "0 2px 14px rgba(0,0,0,0.18)" }} onKeyDown={teclas}>
-      <style>{CSS_FONTES + CSS_PAGINA + CSS_LISTAS + cssDoc + CSS_TELA + cssRevisao + (mostrarGrade ? "" : ".ed-texto td, .ed-texto th { outline: none; }")}</style>
+      <style>{CSS_FONTES + CSS_PAGINA + CSS_LISTAS + cssDoc + CSS_TELA + cssSecoes + cssRevisao + (mostrarGrade ? "" : ".ed-texto td, .ed-texto th { outline: none; }")}</style>
       <input ref={arquivo} type="file" accept=".docx,.txt,.md,.html,.htm" onChange={abrirArquivo} style={{ display: "none" }} />
       <input ref={arquivoImg} type="file" accept="image/png,image/jpeg,image/gif,image/bmp" onChange={inserirImagem} style={{ display: "none" }} />
 
@@ -1521,7 +1650,11 @@ export default function EditorTexto() {
             ]} />
             <Menu grande icone="⟳" rotulo="Orientação" itens={[["Retrato", () => mudarDoc({ pagina: { ...pagina, orient: "retrato" } })], ["Paisagem", () => mudarDoc({ pagina: { ...pagina, orient: "paisagem" } })]]} />
             <Menu grande icone="📄" rotulo="Tamanho" itens={[["A4 (21 × 29,7 cm)", () => mudarDoc({ pagina: { ...pagina, tam: "A4" } })], ["Ofício (21,6 × 33 cm)", () => mudarDoc({ pagina: { ...pagina, tam: "Oficio" } })], ["Carta (21,6 × 27,9 cm)", () => mudarDoc({ pagina: { ...pagina, tam: "Carta" } })]]} />
-            <Btn grande icone="⤓" rotulo="Quebras" onClick={() => cmd("insertHTML", "<hr><p><br></p>")} title="Quebra de página" />
+            <Menu grande icone="⤓" rotulo="Quebras" title="Quebra de página ou de seção" itens={[
+              ["Quebra de página", () => cmd("insertHTML", "<hr><p><br></p>")],
+              ["Quebra de seção: próximas páginas em paisagem", () => inserirQuebraSecao("paisagem")],
+              ["Quebra de seção: próximas páginas em retrato", () => inserirQuebraSecao("retrato")],
+            ]} />
           </Grupo>
           <Grupo titulo="Parágrafo">
             <div style={sColuna}>
@@ -1586,6 +1719,7 @@ export default function EditorTexto() {
           </Grupo>
           <Grupo titulo="Mostrar">
             <div style={sColuna}>
+              <label style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={mostrarRegua} onChange={(e) => { setMostrarRegua(e.target.checked); gravar("editorTexto.regua", e.target.checked); }} /> Régua</label>
               <label style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={mostrarQuebras} onChange={(e) => setMostrarQuebras(e.target.checked)} /> Marcas de fim de página</label>
               <label style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={mostrarGrade} onChange={(e) => setMostrarGrade(e.target.checked)} /> Linhas de grade das tabelas</label>
               <label style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={mostrarMarcas} onChange={(e) => setMostrarMarcas(e.target.checked)} /> Marcações de revisão</label>
@@ -1599,6 +1733,7 @@ export default function EditorTexto() {
             </div>
           </Grupo>
         </>}
+        {mostrarRegua && <Regua editor={editor} pagina={pagRef} area={areaRef} largCm={largCm} m={m} zoom={zoom / 100} versao={atual.html} blocos={blocosSelecionados} salvar={salvarHtml} ajustarTabs={ajustarTabs} />}
       </div>
       {msg && <p style={{ fontSize: 13, color: GOLD, margin: 0, padding: "6px 10px", background: "#fffaf0", borderBottom: "1px solid #eee", fontFamily: FONTE_UI }}>{msg}</p>}
 
@@ -1661,12 +1796,15 @@ export default function EditorTexto() {
 
       <div ref={areaRef} style={{ background: fundoEscuro ? COR_FUNDO_ESCURO : "#e9e6df", padding: "24px 12px", overflowX: "auto" }}>
       <div style={{ zoom: zoom / 100, display: "flex", justifyContent: "safe center", alignItems: "flex-start", gap: 14 }}>
-        <div ref={pagRef} style={{ position: "relative", background: "#fff", width: `${largCm}cm`, maxWidth: "100%", flex: "none", minHeight: `${altCm}cm`, boxShadow: "0 2px 12px rgba(0,0,0,0.15)", boxSizing: "border-box", padding: `0 ${m.dir}cm 0 ${m.esq}cm`, display: "flex", flexDirection: "column" }}>
+        <div ref={pagRef} style={{ position: "relative", background: "#fff", width: `${largCm}cm`, maxWidth: "100%", flex: "none", marginRight: temSecaoLarga ? `${deltaSec}cm` : 0, minHeight: `${altCm}cm`, boxShadow: "0 2px 12px rgba(0,0,0,0.15)", boxSizing: "border-box", padding: `0 ${m.dir}cm 0 ${m.esq}cm`, display: "flex", flexDirection: "column" }}>
           <div style={{ minHeight: `${m.sup}cm`, display: "flex", alignItems: "flex-end", paddingBottom: "0.3cm", boxSizing: "border-box" }}>
             <div ref={cab} className="ed-area" contentEditable suppressContentEditableWarning data-vazio="Cabeçalho (clique para escrever)" lang="pt-BR" spellCheck
               onInput={() => mudarDoc({ cabecalho: cab.current.innerHTML })} style={{ width: "100%", fontFamily: `'${estilos.normal.fonte}', sans-serif` }} />
           </div>
           <div style={{ position: "relative", flex: 1 }}>
+            {faixas.map((f, i) => (
+              <div key={i} title="Seção em paisagem" style={{ position: "absolute", left: `calc(100% + ${m.dir}cm)`, width: `${deltaSec}cm`, top: f.topo, height: Math.max(0, f.fim - f.topo), background: "#fff", boxShadow: "6px 2px 10px rgba(0,0,0,0.15)", pointerEvents: "none" }} />
+            ))}
             <div ref={editor} className={"ed-texto" + (mostrarMarcas ? "" : " sem-marcas") + (pincel ? " com-pincel" : "")} contentEditable suppressContentEditableWarning spellCheck lang="pt-BR"
               onInput={salvarHtml} onClick={cliqueEditor} onMouseUp={soltarPincel} onMouseDown={mouseDownEditor} onMouseMove={mouseMoveEditor} onContextMenu={menuContexto}
               style={{ minHeight: alturaUtil, position: "relative" }} />
@@ -1812,6 +1950,157 @@ function MolduraImagem({ zoom = 1, img, base, redimensionar, posicionar, origina
 }
 
 // Texto de uma nota de rodapé (editável; o HTML só é recarregado ao trocar de nota/documento).
+// ---------- Régua (como a do Word) ----------
+// Recuo da 1ª linha (▽ em cima), recuo deslocado (△ embaixo), recuo esquerdo (▭, move os
+// dois juntos) e recuo direito (△ à direita). Clique na régua cria uma tabulação; arraste
+// a tabulação para fora da régua para apagá-la.
+function Regua({ editor, pagina, area, largCm, m, zoom, versao, blocos, salvar, ajustarTabs }) {
+  const [info, setInfo] = useState(null);
+  const [esquerda, setEsquerda] = useState(0); // onde a folha começa, em px dentro da barra
+  const ref = useRef(null);
+  const barra = useRef(null);
+  // Fica presa embaixo da faixa (como no Word) e acompanha a folha na horizontal.
+  useLayoutEffect(() => {
+    const alinhar = () => {
+      if (!pagina.current || !barra.current) return;
+      setEsquerda(pagina.current.getBoundingClientRect().left - barra.current.getBoundingClientRect().left);
+    };
+    alinhar();
+    const ro = new ResizeObserver(alinhar);
+    if (pagina.current) ro.observe(pagina.current);
+    if (barra.current) ro.observe(barra.current);
+    const el = area.current;
+    el?.addEventListener("scroll", alinhar);
+    window.addEventListener("resize", alinhar);
+    return () => { ro.disconnect(); el?.removeEventListener("scroll", alinhar); window.removeEventListener("resize", alinhar); };
+  });
+  const medir = () => {
+    const ed = editor.current;
+    const s = document.getSelection();
+    if (!ed || !s.rangeCount || !ed.contains(s.anchorNode)) return;
+    const n = s.anchorNode.nodeType === 3 ? s.anchorNode.parentElement : s.anchorNode;
+    const b = n.closest("p,h1,h2,h3,h4,h5,h6,li,blockquote,div:not(.ed-texto)");
+    if (!b || !ed.contains(b)) return setInfo(null);
+    const z = zoom;
+    const er = ed.getBoundingClientRect(), br = b.getBoundingClientRect();
+    const cel = b.closest("td,th");
+    const esq = m.esq + (br.left - er.left) / z / CM;
+    const dir = largCm - m.dir - (er.right - br.right) / z / CM;
+    const ti = parseFloat(getComputedStyle(b).textIndent) / CM || 0;
+    const origem = cel ? m.esq + ((cel.getBoundingClientRect().left - er.left) / z + (parseFloat(getComputedStyle(cel).paddingLeft) || 0)) / CM : m.esq;
+    const tabs = (b.dataset.tabs || "").split(",").map(Number).filter((v) => v > 0);
+    setInfo({ esq, dir, primeira: esq + ti, origem, tabs });
+  };
+  useEffect(() => {
+    document.addEventListener("selectionchange", medir);
+    return () => document.removeEventListener("selectionchange", medir);
+  });
+  useEffect(() => { medir(); }, [versao, zoom, largCm, m.esq, m.dir]);
+
+  const cmDoMouse = (ev, livre) => {
+    const r = ref.current.getBoundingClientRect();
+    const v = (ev.clientX - r.left) / zoom / CM;
+    return Math.max(0, Math.min(largCm, livre ? Math.round(v * 100) / 100 : Math.round(v * 4) / 4)); // passo de 0,25 cm (Alt: livre)
+  };
+  const fmt = (v) => `${Math.round(v * 100) / 100}cm`;
+
+  function arrastar(e, tipo, tabIdx) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!info) return;
+    const alvo = blocos();
+    if (!alvo.length) return;
+    const ini = { ...info, tabs: [...info.tabs] };
+    // Recuos atuais de cada bloco, em cm (lidos do estilo calculado).
+    const base = alvo.map((b) => ({ b }));
+    base.forEach((x) => {
+      const cs = getComputedStyle(x.b);
+      x.ml = parseFloat(cs.marginLeft) / CM || 0;
+      x.mr = parseFloat(cs.marginRight) / CM || 0;
+      x.ti = parseFloat(cs.textIndent) / CM || 0;
+    });
+    let mudou = false;
+    const mover = (ev) => {
+      const v = cmDoMouse(ev, ev.altKey);
+      mudou = true;
+      if (tipo === "primeira") base.forEach((x) => { x.b.style.textIndent = fmt(v - ini.esq + 0); });
+      if (tipo === "deslocado") base.forEach((x) => { // mexe o esquerdo e mantém a 1ª linha no lugar
+        const d = v - ini.esq;
+        x.b.style.marginLeft = fmt(Math.max(-m.esq, x.ml + d));
+        x.b.style.textIndent = fmt(x.ti - d);
+      });
+      if (tipo === "esquerdo") base.forEach((x) => { x.b.style.marginLeft = fmt(Math.max(-m.esq, x.ml + v - ini.esq)); });
+      if (tipo === "direito") base.forEach((x) => { x.b.style.marginRight = fmt(Math.max(-m.dir, x.mr + ini.dir - v)); });
+      if (tipo === "tab") {
+        const fora = Math.abs(ev.clientY - ref.current.getBoundingClientRect().top - 9) > 28;
+        const lista = ini.tabs.filter((_, i) => i !== tabIdx);
+        if (!fora) lista.push(Math.round((v - ini.origem) * 100) / 100);
+        alvo.forEach((b) => { if (lista.length) b.dataset.tabs = lista.filter((t) => t > 0).sort((a, c) => a - c).join(","); else b.removeAttribute("data-tabs"); });
+      }
+      ajustarTabs();
+      medir();
+    };
+    const soltar = () => {
+      window.removeEventListener("mousemove", mover);
+      window.removeEventListener("mouseup", soltar);
+      if (mudou) salvar();
+    };
+    window.addEventListener("mousemove", mover);
+    window.addEventListener("mouseup", soltar);
+  }
+
+  function novaTab(e) {
+    e.preventDefault();
+    if (!info) return;
+    const v = cmDoMouse(e, e.altKey);
+    if (v <= info.origem || v >= largCm - m.dir) return;
+    const t = Math.round((v - info.origem) * 100) / 100;
+    blocos().forEach((b) => {
+      const lista = (b.dataset.tabs || "").split(",").map(Number).filter((x) => x > 0 && Math.abs(x - t) > 0.05);
+      b.dataset.tabs = [...lista, t].sort((a, c) => a - c).join(",");
+    });
+    ajustarTabs();
+    salvar();
+    medir();
+  }
+
+  const marcas = [];
+  for (let q = 0; q <= largCm * 4; q++) {
+    const x = q / 4;
+    const rel = x - m.esq;
+    const inteiro = Math.abs(rel - Math.round(rel)) < 0.01;
+    const meio = Math.abs(Math.abs(rel % 1) - 0.5) < 0.01;
+    if (inteiro && Math.round(rel) !== 0) marcas.push(<span key={q} style={{ position: "absolute", left: `${x}cm`, top: 3, transform: "translateX(-50%)", fontSize: 9, color: "#555", fontFamily: "sans-serif", lineHeight: 1 }}>{Math.abs(Math.round(rel))}</span>);
+    else if (!inteiro) marcas.push(<span key={q} style={{ position: "absolute", left: `${x}cm`, top: meio ? 6 : 8, height: meio ? 6 : 2, borderLeft: "1px solid #777" }} />);
+  }
+  const tri = (cima) => <svg width="11" height="8" style={{ display: "block" }}><path d={cima ? "M0.5 0.5 H10.5 L5.5 7.5 Z" : "M0.5 7.5 H10.5 L5.5 0.5 Z"} fill="#e9e6df" stroke="#555" /></svg>;
+  const marcador = (x, top, conteudo, tipo, title) => (
+    <div title={title} onMouseDown={(e) => arrastar(e, tipo)} style={{ position: "absolute", left: `${x}cm`, top, transform: "translateX(-50%)", cursor: "ew-resize", lineHeight: 0, zIndex: 2 }}>{conteudo}</div>
+  );
+  return (
+    <div ref={barra} data-sem-foco style={{ flexBasis: "100%", height: Math.round(18 * zoom + 8), position: "relative", margin: "4px -4px 0", background: "#dedad0", borderTop: "1px solid #d0c9b8", overflow: "hidden" }}>
+    <div style={{ position: "absolute", left: esquerda / zoom, top: 4 / zoom, zoom }}>
+    <div ref={ref} data-regua onMouseDown={novaTab} title="Clique para criar uma tabulação"
+      style={{ position: "relative", width: `${largCm}cm`, height: 18, background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,0.25)", cursor: "default", userSelect: "none" }}>
+      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${m.esq}cm`, background: "#cfcabd" }} />
+      <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: `${m.dir}cm`, background: "#cfcabd" }} />
+      {marcas}
+      {info && <>
+        {marcador(info.primeira, -1, tri(true), "primeira", "Recuo da primeira linha")}
+        {marcador(info.esq, 10, tri(false), "deslocado", "Recuo deslocado")}
+        {marcador(info.esq, 18, <div style={{ width: 9, height: 5, background: "#e9e6df", border: "1px solid #555" }} />, "esquerdo", "Recuo à esquerda")}
+        {marcador(info.dir, 10, tri(false), "direito", "Recuo à direita")}
+        {info.tabs.map((t, i) => (
+          <div key={i} title="Tabulação (arraste para fora da régua para apagar)" onMouseDown={(e) => arrastar(e, "tab", i)}
+            style={{ position: "absolute", left: `${info.origem + t}cm`, top: 9, width: 7, height: 7, borderLeft: "2px solid #222", borderBottom: "2px solid #222", cursor: "ew-resize", zIndex: 2 }} />
+        ))}
+      </>}
+    </div>
+    </div>
+    </div>
+  );
+}
+
 function AreaPrimeira({ campo, html, docId, mudar, fonte }) {
   const ref = useRef(null);
   useEffect(() => { if (ref.current && ref.current.innerHTML !== html) ref.current.innerHTML = html; }, [campo, docId]);

@@ -155,7 +155,7 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, cabecalho1 = 
           if (texto) out.push(new Classe({ text: texto, ...est, id: revId++, author: __rev.autor, date: __rev.data }));
           continue;
         }
-        const partes = filho.textContent.split("\t");
+        const partes = filho.textContent.replace(/\u200b/g, "").split("\t");
         partes.forEach((p, i) => {
           if (i > 0) out.push(new d.TextRun({ children: [new d.Tab()], ...est }));
           if (p) out.push(new d.TextRun({ text: p.replace(/\n/g, " "), ...est }));
@@ -230,6 +230,8 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, cabecalho1 = 
     if (st.borderLeft && !/none/.test(st.borderLeft)) bordas.left = { ...borda(st.borderLeft), space: 4 };
     if (st.borderRight && !/none/.test(st.borderRight)) bordas.right = { ...borda(st.borderRight), space: 4 };
     if (Object.keys(bordas).length) p.border = bordas;
+    const tabs = (el.dataset?.tabs || "").split(",").map(Number).filter((v) => v > 0);
+    if (tabs.length) p.tabStops = tabs.map((v) => ({ type: d.TabStopType.LEFT, position: Math.round(v * TWIP_CM) }));
     const fundo = corHex(st.backgroundColor);
     if (fundo) p.shading = { type: d.ShadingType.CLEAR, color: "auto", fill: fundo };
     return p;
@@ -383,7 +385,14 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, cabecalho1 = 
       indent: { left: Math.round(est.citacao.recuoEsq * TWIP_CM), firstLine: 0 }, alignment: alinh(est.citacao.alinhamento),
     },
   };
-  const filhosCorpo = blocos(corpo);
+  // Quebras de seção (<hr class="secao" data-orient>): cada trecho vira uma seção do Word,
+  // com a orientação própria; cabeçalho e rodapé continuam os da primeira (o Word herda).
+  const partes = [{ orient: pagina.orient === "paisagem" ? "paisagem" : "retrato", el: corpo.ownerDocument.createElement("div") }];
+  for (const n of [...corpo.childNodes]) {
+    if (n.nodeType === 1 && n.matches("hr.secao")) partes.push({ orient: n.dataset.orient === "paisagem" ? "paisagem" : "retrato", el: corpo.ownerDocument.createElement("div") });
+    else partes[partes.length - 1].el.appendChild(n);
+  }
+  const filhosPartes = partes.map((pt) => blocos(pt.el));
   for (const [id, n] of numeroNota) {
     const b = blocos(parse(notas[id] || ""));
     notasDocx[n] = { children: b.length ? b : [new d.Paragraph("")] };
@@ -427,22 +436,24 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, cabecalho1 = 
     // Páginas do sumário: medidas com as fontes do navegador (a Arial Narrow não está nas
     // tabelas da biblioteca); guess segue estimando onde o cálculo exato não alcança.
     pageNumbers: temSumario ? estimatePageNumbersWith({ measureWidth: await medidorDeTexto(html, est), guess: true }) : undefined,
-    sections: [{
+    sections: partes.map((pt, i) => ({
       properties: {
-        titlePage: !!doc.primeiraDiferente,
+        titlePage: i === 0 && !!doc.primeiraDiferente,
         page: {
-          size: { width: Math.round(w * TWIP_CM), height: Math.round(h * TWIP_CM), orientation: pagina.orient === "paisagem" ? d.PageOrientation.LANDSCAPE : d.PageOrientation.PORTRAIT },
+          size: { width: Math.round(w * TWIP_CM), height: Math.round(h * TWIP_CM), orientation: pt.orient === "paisagem" ? d.PageOrientation.LANDSCAPE : d.PageOrientation.PORTRAIT },
           margin: { top: Math.round(m.sup * TWIP_CM), bottom: Math.round(m.inf * TWIP_CM), left: Math.round(m.esq * TWIP_CM), right: Math.round(m.dir * TWIP_CM), header: Math.round(1.25 * TWIP_CM), footer: Math.round(1.25 * TWIP_CM) },
         },
       },
+      ...(i > 0 ? { children: filhosPartes[i].length ? filhosPartes[i] : [new d.Paragraph("")] } : {
       headers: doc.primeiraDiferente
         ? { default: new d.Header({ children: cabFilhos.length ? cabFilhos : vazio() }), first: new d.Header({ children: cab1.length ? cab1 : vazio() }) }
         : cabFilhos.length ? { default: new d.Header({ children: cabFilhos }) } : undefined,
       footers: doc.primeiraDiferente
         ? { default: new d.Footer({ children: rodapeFilhos.length ? rodapeFilhos : vazio() }), first: new d.Footer({ children: rod1.length ? rod1 : vazio() }) }
         : rodapeFilhos.length ? { default: new d.Footer({ children: rodapeFilhos }) } : undefined,
-      children: filhosCorpo.length ? filhosCorpo : [new d.Paragraph("")],
-    }],
+      children: filhosPartes[0].length ? filhosPartes[0] : [new d.Paragraph("")],
+      }),
+    })),
   });
   return d.Packer.toBlob(documento);
 }
@@ -548,6 +559,7 @@ function inlinarEstilos(orig, copia) {
         if (bloco && tag !== "LI" && corHex(st.backgroundColor)) decl.push(`background-color:${st.backgroundColor}`);
         if (parseFloat(st.marginLeft) > 0) decl.push(`margin-left:${pxCm(st.marginLeft)}cm`);
         else if (parseFloat(st.paddingLeft) > 0) decl.push(`margin-left:${pxCm(st.paddingLeft)}cm`);
+        if (parseFloat(st.marginRight) > 0) decl.push(`margin-right:${pxCm(st.marginRight)}cm`);
       } else {
         for (const lado of ["Top", "Bottom", "Left", "Right"]) {
           const estilo = st[`border${lado}Style`];
@@ -613,10 +625,32 @@ function inlinarEstilos(orig, copia) {
     }
     if (bloco) {
       const numero = numerar(o);
-      if (numero) c.insertBefore(document.createTextNode(numero + "\t"), c.firstChild);
+      if (numero) { c.insertBefore(spanTab(), c.firstChild); c.insertBefore(document.createTextNode(numero), c.firstChild); }
     }
-    if (o.classList.contains?.("docx-tab-stop") || /tab-stop/.test(o.className)) c.replaceWith(document.createTextNode("\t"));
+    if (o.classList.contains?.("docx-tab-stop") || /tab-stop/.test(o.className)) {
+      // Tabulação: guarda onde o texto seguinte começa como parada do parágrafo (data-tabs,
+      // em cm a partir da margem ou da borda da célula), para ficar alinhado como no Word.
+      const cel = o.closest("td,th");
+      const refEl = cel || o.closest("article") || o.closest("section");
+      const refX = refEl ? refEl.getBoundingClientRect().left + (cel ? parseFloat(getComputedStyle(cel).paddingLeft) || 0 : 0) : 0;
+      let parada = Math.round(((o.getBoundingClientRect().right - refX) / CM) * 100) / 100;
+      if (Math.abs(parada - Math.round(parada * 4) / 4) < 0.1) parada = Math.round(parada * 4) / 4; // o docx-preview arredonda em pontos
+      const bloco = c.parentElement?.closest("p,h1,h2,h3,h4,h5,h6,li,td,th");
+      if (bloco && parada > 0.1 && !bloco.matches("td,th")) {
+        const lista = (bloco.dataset.tabs || "").split(",").map(Number).filter((v) => v > 0 && Math.abs(v - parada) > 0.05);
+        bloco.dataset.tabs = [...lista, parada].sort((a, b) => a - b).join(",");
+      }
+      c.replaceWith(spanTab());
+    }
   });
+}
+
+function spanTab() {
+  const t = document.createElement("span");
+  t.className = "tab";
+  t.setAttribute("contenteditable", "false");
+  t.textContent = "\t";
+  return t;
 }
 
 function limpar(raiz) {
@@ -627,7 +661,7 @@ function limpar(raiz) {
     span.append(...n.childNodes);
     n.replaceWith(span);
   });
-  raiz.querySelectorAll("span:not([style]):not([data-com-ini]):not([data-com-fim]),font:not([style])").forEach((n) => n.replaceWith(...n.childNodes));
+  raiz.querySelectorAll("span:not([style]):not([data-com-ini]):not([data-com-fim]):not(.tab),font:not([style])").forEach((n) => n.replaceWith(...n.childNodes));
   raiz.querySelectorAll("p").forEach((p) => { if (!p.textContent && !p.querySelector("img,br")) p.innerHTML = "<br>"; });
   return raiz.innerHTML;
 }
@@ -688,6 +722,8 @@ export async function docxParaHtml(buffer) {
       inWrapper: false, ignoreWidth: false, ignoreHeight: false, breakPages: true, ignoreLastRenderedPageBreak: true,
       renderHeaders: true, renderFooters: true, renderFootnotes: true, renderChanges: true, renderComments: true, renderEndnotes: false, useBase64URL: true, experimental: true,
     });
+    // O docx-preview calcula a largura das tabulações 0,5 s depois de desenhar.
+    if (caixa.querySelector("[class$='-tab-stop']")) await new Promise((ok) => setTimeout(ok, 650));
     const secoes = [...caixa.querySelectorAll("section")];
     await prepararRevisoes(buffer, caixa);
     const comentarios = prepararComentarios(caixa);
@@ -718,7 +754,23 @@ export async function docxParaHtml(buffer) {
     const corpos = secoes.map((s) => converterArea(s.querySelector("article")));
     // Marcadores de início/fim de comentário viram trechos destacados.
     const juntar = document.createElement("div");
-    juntar.innerHTML = corpos.filter(Boolean).join('<hr class="quebra">');
+    // Páginas viram quebras de página; mudança de orientação vira quebra de seção.
+    const orientDe = (sec) => {
+      const cs = getComputedStyle(sec);
+      const wd = sec.getBoundingClientRect().width || parseFloat(cs.width);
+      const ht = parseFloat(cs.minHeight) || parseFloat(cs.height) || 0;
+      return ht && wd > ht ? "paisagem" : "retrato";
+    };
+    let htmlJunto = "";
+    let orientAnt = orientDe(secoes[0]);
+    corpos.forEach((c, i) => {
+      const o = orientDe(secoes[i]);
+      if (i > 0 && o !== orientAnt) htmlJunto += `<hr class="secao" data-orient="${o}">`;
+      else if (i > 0 && c && htmlJunto) htmlJunto += '<hr class="quebra">';
+      orientAnt = o;
+      htmlJunto += c || "";
+    });
+    juntar.innerHTML = htmlJunto;
     for (const ini of [...juntar.querySelectorAll("[data-com-ini]")]) {
       const id = ini.dataset.comIni;
       const fim = juntar.querySelector(`[data-com-fim="${id}"]`);

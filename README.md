@@ -37,6 +37,9 @@ Além do gerador de documentos e das publicações, o app tem um editor de texto
   **Exportar PDF / Imprimir** com as páginas montadas como no Word (cabeçalho e
   rodapé em cada página, 1ª página diferente, "Página X de Y", notas no pé da
   própria página e sumário com os números de página exatos);
+  **régua** como a do Word (recuo da 1ª linha, deslocado, esquerdo e direito; clique
+  cria tabulação, Tab no texto avança até ela) e **quebras de seção** com páginas em
+  paisagem no meio do documento (para quadros e tabelas largas), no .docx e no PDF;
   marcação de onde cada página termina; entrelinhas, espaço depois do parágrafo e
   recuo da primeira linha; negrito, itálico, fontes, cores, títulos, listas
   em vários níveis (Tab / Shift+Tab; formatos 1. 1.1. 1.1.1., 1. a) i), I. A. 1.),
