@@ -29,7 +29,7 @@ Acesse http://localhost:5173
 
 Além do gerador de documentos e das publicações, o app tem um editor de texto:
 
-- **📝 Texto** (estilo Word): página A4, Ofício ou Carta (retrato ou paisagem) com
+- **📝 Texto** (estilo Word): fonte padrão Arial Narrow 11; página A4, Ofício ou Carta (retrato ou paisagem) com
   margens ajustáveis; cabeçalho, rodapé e número de página ("Página X de Y");
   marcação de onde cada página termina; entrelinhas, espaço depois do parágrafo e
   recuo da primeira linha; negrito, itálico, fontes, cores, títulos, listas,

@@ -2,11 +2,11 @@
 // Títulos 1 a 3 e Citação. Valem para a tela, a impressão e o .docx.
 
 export const ESTILOS_PADRAO = {
-  normal: { nome: "Normal", fonte: "Times New Roman", tamanho: 12, entrelinhas: 1.5, antes: 0, depois: 6, recuo: 0, alinhamento: "left" },
-  h1: { nome: "Título 1", fonte: "Times New Roman", tamanho: 16, negrito: true, italico: false, cor: "#000000", alinhamento: "left", antes: 12, depois: 6 },
-  h2: { nome: "Título 2", fonte: "Times New Roman", tamanho: 14, negrito: true, italico: false, cor: "#000000", alinhamento: "left", antes: 12, depois: 6 },
-  h3: { nome: "Título 3", fonte: "Times New Roman", tamanho: 12, negrito: true, italico: false, cor: "#000000", alinhamento: "left", antes: 12, depois: 6 },
-  citacao: { nome: "Citação", fonte: "Times New Roman", tamanho: 10, entrelinhas: 1, antes: 0, depois: 6, recuoEsq: 4, alinhamento: "justify", italico: false },
+  normal: { nome: "Normal", fonte: "Arial Narrow", tamanho: 11, entrelinhas: 1.5, antes: 0, depois: 6, recuo: 0, alinhamento: "left" },
+  h1: { nome: "Título 1", fonte: "Arial Narrow", tamanho: 14, negrito: true, italico: false, cor: "#000000", alinhamento: "left", antes: 12, depois: 6 },
+  h2: { nome: "Título 2", fonte: "Arial Narrow", tamanho: 12, negrito: true, italico: false, cor: "#000000", alinhamento: "left", antes: 12, depois: 6 },
+  h3: { nome: "Título 3", fonte: "Arial Narrow", tamanho: 11, negrito: true, italico: false, cor: "#000000", alinhamento: "left", antes: 12, depois: 6 },
+  citacao: { nome: "Citação", fonte: "Arial Narrow", tamanho: 10, entrelinhas: 1, antes: 0, depois: 6, recuoEsq: 4, alinhamento: "justify", italico: false },
 };
 
 // Completa com os padrões (documentos antigos não têm todos os campos).
@@ -15,7 +15,8 @@ export function estilosDe(doc) {
   return Object.fromEntries(Object.entries(ESTILOS_PADRAO).map(([k, v]) => [k, { ...v, ...(e[k] || {}) }]));
 }
 
-const fonte = (f) => `'${String(f).replace(/'/g, "")}', serif`;
+const SERIFADAS = /times|georgia|garamond|cambria|book/i;
+const fonte = (f) => `'${String(f).replace(/'/g, "")}', ${SERIFADAS.test(f) ? "serif" : "sans-serif"}`;
 
 export function cssEstilos(estilos, raiz = ".ed-texto") {
   const { normal: n, h1, h2, h3, citacao: c } = estilos;

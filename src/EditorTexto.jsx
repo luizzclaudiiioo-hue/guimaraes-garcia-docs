@@ -792,9 +792,9 @@ export default function EditorTexto() {
     const w = window.open("", "_blank");
     if (!w) return setMsg("Permita pop-ups para imprimir ou salvar em PDF.");
     const numero = {
-      direita: '@bottom-right { content: counter(page); font: 10pt "Times New Roman"; }',
-      centro: '@bottom-center { content: counter(page); font: 10pt "Times New Roman"; }',
-      xdey: '@bottom-center { content: "Página " counter(page) " de " counter(pages); font: 10pt "Times New Roman"; }',
+      direita: `@bottom-right { content: counter(page); font: 10pt "${estilos.normal.fonte}"; }`,
+      centro: `@bottom-center { content: counter(page); font: 10pt "${estilos.normal.fonte}"; }`,
+      xdey: `@bottom-center { content: "Página " counter(page) " de " counter(pages); font: 10pt "${estilos.normal.fonte}"; }`,
     }[atual.numPag] || "";
     // Cabeçalho/rodapé em thead/tfoot: o navegador repete em todas as páginas impressas.
     w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(atual.nome)}</title>
@@ -1114,7 +1114,7 @@ export default function EditorTexto() {
         <div ref={pagRef} style={{ position: "relative", background: "#fff", width: `${largCm}cm`, maxWidth: "100%", flex: "none", minHeight: `${altCm}cm`, boxShadow: "0 2px 12px rgba(0,0,0,0.15)", boxSizing: "border-box", padding: `0 ${m.dir}cm 0 ${m.esq}cm`, display: "flex", flexDirection: "column" }}>
           <div style={{ minHeight: `${m.sup}cm`, display: "flex", alignItems: "flex-end", paddingBottom: "0.3cm", boxSizing: "border-box" }}>
             <div ref={cab} className="ed-area" contentEditable suppressContentEditableWarning data-vazio="Cabeçalho (clique para escrever)" lang="pt-BR" spellCheck
-              onInput={() => mudarDoc({ cabecalho: cab.current.innerHTML })} style={{ width: "100%", fontFamily: "'Times New Roman', serif" }} />
+              onInput={() => mudarDoc({ cabecalho: cab.current.innerHTML })} style={{ width: "100%", fontFamily: `'${estilos.normal.fonte}', sans-serif` }} />
           </div>
           <div style={{ position: "relative", flex: 1 }}>
             <div ref={editor} className={"ed-texto" + (mostrarMarcas ? "" : " sem-marcas")} contentEditable suppressContentEditableWarning spellCheck lang="pt-BR"
@@ -1140,9 +1140,9 @@ export default function EditorTexto() {
           </div>
           <div style={{ minHeight: `${m.inf}cm`, paddingTop: "0.3cm", boxSizing: "border-box" }}>
             <div ref={rod} className="ed-area" contentEditable suppressContentEditableWarning data-vazio="Rodapé (clique para escrever)" lang="pt-BR" spellCheck
-              onInput={() => mudarDoc({ rodape: rod.current.innerHTML })} style={{ width: "100%", fontFamily: "'Times New Roman', serif" }} />
+              onInput={() => mudarDoc({ rodape: rod.current.innerHTML })} style={{ width: "100%", fontFamily: `'${estilos.normal.fonte}', sans-serif` }} />
             {textoNumero && (
-              <div style={{ fontSize: "10pt", fontFamily: "'Times New Roman', serif", textAlign: atual.numPag === "direita" ? "right" : "center", color: "#555", padding: "0 4px" }} title="Número de página (aparece em todas as páginas no Word e na impressão)">
+              <div style={{ fontSize: "10pt", fontFamily: `'${estilos.normal.fonte}', sans-serif`, textAlign: atual.numPag === "direita" ? "right" : "center", color: "#555", padding: "0 4px" }} title="Número de página (aparece em todas as páginas no Word e na impressão)">
                 {textoNumero}
               </div>
             )}

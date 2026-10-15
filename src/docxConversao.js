@@ -7,8 +7,8 @@ import { envolverIntervalo } from "./textoRevisao.js";
 export const CM = 37.7953; // pixels por centímetro na tela
 export const PAPEIS = { A4: [21, 29.7], Oficio: [21.6, 33], Carta: [21.59, 27.94] };
 export const PAGINA_PADRAO = { tam: "A4", orient: "retrato", margens: { sup: 3, inf: 2, esq: 3, dir: 2 } };
-export const FONTE_PADRAO = "Times New Roman";
-export const TAMANHO_PADRAO = 12; // pt
+export const FONTE_PADRAO = "Arial Narrow";
+export const TAMANHO_PADRAO = 11; // pt
 
 export function dimensoes(pagina = PAGINA_PADRAO) {
   const [w, h] = PAPEIS[pagina.tam] || PAPEIS.A4;
