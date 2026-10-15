@@ -24,3 +24,50 @@ npm run dev
 ```
 
 Acesse http://localhost:5173
+
+## Editor de Texto
+
+Além do gerador de documentos e das publicações, o app tem um editor de texto:
+
+- **📝 Texto** (estilo Word): interface com faixa de opções (Arquivo, Página Inicial,
+  Inserir, Layout, Referências, Revisão, Exibir), zoom e fundo escuro em volta da
+  página; fonte padrão Arial Narrow 11; página A4, Ofício ou Carta (retrato ou paisagem) com
+  margens ajustáveis; cabeçalho, rodapé e número de página ("Página X de Y"),
+  com opção de primeira página diferente (timbre só na folha de rosto);
+  **Exportar PDF / Imprimir** com as páginas montadas como no Word (cabeçalho e
+  rodapé em cada página, 1ª página diferente, "Página X de Y", notas no pé da
+  própria página e sumário com os números de página exatos);
+  **régua** como a do Word (recuo da 1ª linha, deslocado, esquerdo e direito; clique
+  cria tabulação, Tab no texto avança até ela) e **quebras de seção** com páginas em
+  paisagem no meio do documento (para quadros e tabelas largas), no .docx e no PDF;
+  marcação de onde cada página termina; entrelinhas, espaço depois do parágrafo e
+  recuo da primeira linha; negrito, itálico, fontes, cores, títulos, listas
+  em vários níveis (Tab / Shift+Tab; formatos 1. 1.1. 1.1.1., 1. a) i), I. A. 1.),
+  bordas e sombreamento de parágrafo, pincel de formatação, data por extenso,
+  links e localizar e substituir (Ctrl+F / Ctrl+H). Atalhos do Word: Ctrl+B/I/U,
+  Ctrl+L/E/R/J (alinhamento), Ctrl+] e Ctrl+[ (tamanho), Ctrl+Enter (quebra de página),
+  Tab / Shift+Tab (tabulação, níveis de lista e células de tabela), Ctrl+P (imprimir).
+  - **Tabelas**: seletor de tamanho, menu do botão direito (inserir/excluir linhas
+    e colunas, mesclar arrastando, dividir, bordas, sombreamento), largura das
+    colunas arrastando, Tab entre células.
+  - **Imagens**: alças para redimensionar, em linha, centralizada ou com texto ao redor.
+  - **Notas de rodapé**, **estilos editáveis** (Normal, Títulos, Citação) e
+    **sumário automático**.
+  - **Comentários** em balões ao lado da página (responder, resolver, excluir) e
+    **controle de alterações** com autor e data (aceitar/rejeitar uma ou todas).
+  Abre `.docx` mantendo fontes, espaçamentos, numeração, cabeçalho, rodapé,
+  imagens, tabelas, notas, comentários e alterações; salva em Word (`.docx`) e
+  imprime ou gera PDF.
+
+**Abrir e salvar no mesmo arquivo:** no Chrome e no Edge (computador), "📂 Abrir"
+liga o documento ao arquivo escolhido, e "💾 Salvar" (Ctrl+S) grava
+por cima desse mesmo arquivo; "Salvar como…" (Ctrl+Shift+S) cria outro. Na primeira
+gravação o navegador pede permissão. Se o arquivo tiver recursos que o app ainda não
+mantém (gráficos, caixas de texto, campos de formulário etc.), o app avisa antes
+de gravar por cima. Em outros navegadores, "Salvar" baixa um arquivo novo.
+
+O conteúdo também fica guardado automaticamente no navegador de quem usa (não vai
+para o servidor). Código: `src/arquivoLocal.js`.
+
+A conversão de/para `.docx` fica em `src/docxConversao.js`; tabelas, estilos e
+revisão em `src/textoTabelas.js`, `src/textoEstilos.js` e `src/textoRevisao.js`.
