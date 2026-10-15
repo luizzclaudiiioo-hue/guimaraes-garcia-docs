@@ -180,12 +180,13 @@ export default function App() {
         residencia_propria: "Declaracao_Residencia_",
         amaisa: "Declaracao_Amaisa_",
         proprietario: "Declaracao_Proprietario_",
+        habilitacao: "Peticao_Habilitacao_",
       };
       setDocumento({ blob, nome: `${nomesArquivo[tipo] || "Documento_"}${dados.nome.replace(/\s+/g, "_")}` });
       setEtapa("pronto");
     } catch (e) {
       setErro("Erro ao gerar documento: " + e.message);
-      setEtapa(tipo === "contrato" ? "financeiro" : "revisao");
+      setEtapa(tipo === "contrato" ? "financeiro" : tipo === "habilitacao" ? "extras" : "revisao");
     }
   }
 
@@ -207,9 +208,9 @@ export default function App() {
   ];
 
   const tipoTemFinanceiro = tipo === "contrato";
-  const tipoTemDadosEspeciais = ["amaisa","proprietario","revogacao"].includes(tipo);
-  const steps = tipoTemFinanceiro ? ["Documento","Texto","Dados","Honorários","Prévia"] : tipoTemDadosEspeciais ? ["Documento","Texto","Dados","Extras","Prévia"] : ["Documento","Texto","Dados","Prévia"];
-  const etapaIdx = { tipo: 0, input: 1, revisao: 2, financeiro: 3, extras: 3, gerando: tipoTemFinanceiro ? 3 : tipoTemDadosEspeciais ? 3 : 2, pronto: tipoTemFinanceiro ? 4 : tipoTemDadosEspeciais ? 4 : 3 }[etapa] ?? 0;
+  const tipoTemDadosEspeciais = ["amaisa","proprietario","revogacao","habilitacao"].includes(tipo);
+  const steps = tipo === "habilitacao" ? ["Documento","Dados","Prévia"] : tipoTemFinanceiro ? ["Documento","Texto","Dados","Honorários","Prévia"] : tipoTemDadosEspeciais ? ["Documento","Texto","Dados","Extras","Prévia"] : ["Documento","Texto","Dados","Prévia"];
+  const etapaIdx = tipo === "habilitacao" ? ({ tipo: 0, extras: 1, gerando: 1, pronto: 2 }[etapa] ?? 0) : { tipo: 0, input: 1, revisao: 2, financeiro: 3, extras: 3, gerando: tipoTemFinanceiro ? 3 : tipoTemDadosEspeciais ? 3 : 2, pronto: tipoTemFinanceiro ? 4 : tipoTemDadosEspeciais ? 4 : 3 }[etapa] ?? 0;
 
   return (
     <>
@@ -266,8 +267,14 @@ export default function App() {
                   { id: "residencia_propria", icon: "🏠", title: "Declaração de Residência Própria", desc: "Declaração de residência do proprietário do imóvel" },
                   { id: "amaisa", icon: "💑", title: "Declaração de Amásia", desc: "Declaração de união estável" },
                   { id: "proprietario", icon: "🔑", title: "Declaração Residencial (Proprietário)", desc: "Declaração do proprietário ao locatário" },
+                  { id: "habilitacao", icon: "🧾", title: "Pedido de Habilitação", desc: "Petição de habilitação do advogado nos autos" },
                 ].map((op) => (
-                  <button key={op.id} onClick={() => { setTipo(op.id); setEtapa("input"); }}
+                  <button key={op.id} onClick={() => {
+                    setTipo(op.id);
+                    // Habilitação só precisa do nome do cliente: vai direto ao formulário.
+                    if (op.id === "habilitacao") { setDados({ nome: "" }); setFin((p) => ({ ...p, genero: "feminino", juizo: "", numeroProcesso: "" })); setEtapa("extras"); }
+                    else setEtapa("input");
+                  }}
                     style={{ background: "rgba(255,255,255,0.7)", border: "1px solid rgba(90,122,90,0.25)", borderRadius: 14, padding: "24px 16px", cursor: "pointer", textAlign: "center", color: "#2a2a2a", fontFamily: "Georgia, serif" }}
                     onMouseEnter={e => e.currentTarget.style.borderColor = GOLD}
                     onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(201,168,76,0.25)"}>
@@ -342,8 +349,8 @@ export default function App() {
           {etapa === "extras" && (
             <>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                <span style={{ ...sLabel, margin: 0 }}>Dados adicionais</span>
-                <button onClick={() => setEtapa("revisao")} style={{ background: "none", border: "none", color: "#666666", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif" }}>← Voltar</button>
+                <span style={{ ...sLabel, margin: 0 }}>{tipo === "habilitacao" ? "Dados da habilitação" : "Dados adicionais"}</span>
+                <button onClick={() => setEtapa(tipo === "habilitacao" ? "tipo" : "revisao")} style={{ background: "none", border: "none", color: "#666666", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif" }}>← Voltar</button>
               </div>
               {tipo === "amaisa" && (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
@@ -367,6 +374,23 @@ export default function App() {
                   <Campo label="CPF do locatário" value={fin.cpfLocatario || ""} onChange={(v) => setFin(p => ({ ...p, cpfLocatario: v }))} />
                 </div>
               )}
+              {tipo === "habilitacao" && (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
+                  <SecTitle>Cliente</SecTitle>
+                  <Campo label="Nome completo do cliente" full value={dados?.nome || ""} onChange={(v) => setDados((p) => ({ ...p, nome: v }))} />
+                  <label style={{ ...sLabel, gridColumn: "1 / -1", display: "flex", gap: 16, alignItems: "center" }}>
+                    <span>Cliente é:</span>
+                    {[["feminino", "Mulher (\"qualificada\")"], ["masculino", "Homem (\"qualificado\")"]].map(([v, t]) => (
+                      <label key={v} style={{ display: "flex", gap: 6, alignItems: "center", fontWeight: "normal", cursor: "pointer" }}>
+                        <input type="radio" name="genero" checked={(fin.genero || "feminino") === v} onChange={() => setFin((p) => ({ ...p, genero: v }))} />{t}
+                      </label>
+                    ))}
+                  </label>
+                  <SecTitle>Processo</SecTitle>
+                  <Campo label="Juízo (competência)" full value={fin.juizo || ""} onChange={(v) => setFin((p) => ({ ...p, juizo: v }))} placeholder="AO JUÍZO DA 1ª VARA DO JUIZADO ESPECIAL CÍVEL - JEC CENTRAL - VERGUEIRO DA COMARCA DE SÃO PAULO – SP" />
+                  <Campo label="Número do processo" full value={fin.numeroProcesso || ""} onChange={(v) => setFin((p) => ({ ...p, numeroProcesso: v }))} placeholder="0000000-00.0000.0.00.0000" />
+                </div>
+              )}
               {tipo === "revogacao" && (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
                   <SecTitle>Dados da Revogação</SecTitle>
@@ -374,7 +398,10 @@ export default function App() {
                 </div>
               )}
               {erro && <p style={{ color: "#e05050", fontSize: 13, marginTop: 12, fontFamily: "sans-serif" }}>{erro}</p>}
-              <button onClick={gerarDoc} style={{ ...sBtn(false), marginTop: 24 }}>📄  Gerar Documento →</button>
+              {(() => {
+                const faltando = tipo === "habilitacao" && (!dados?.nome?.trim() || !fin.juizo?.trim() || !fin.numeroProcesso?.trim());
+                return <button onClick={gerarDoc} disabled={faltando} title={faltando ? "Preencha nome, juízo e número do processo" : ""} style={{ ...sBtn(faltando), marginTop: 24 }}>📄  Gerar Documento →</button>;
+              })()}
             </>
           )}
 
@@ -389,7 +416,7 @@ export default function App() {
             <PreviaDocumento
               blob={documento.blob}
               nomeArquivo={documento.nome}
-              titulo={tipo === "procuracao" ? "Procuração" : tipo === "contrato" ? "Contrato de Honorários" : "Documento"}
+              titulo={tipo === "procuracao" ? "Procuração" : tipo === "contrato" ? "Contrato de Honorários" : tipo === "habilitacao" ? "Pedido de Habilitação" : "Documento"}
               onVoltar={() => setEtapa(tipoTemFinanceiro ? "financeiro" : tipoTemDadosEspeciais ? "extras" : "revisao")}
               onNovo={resetar}
             />
