@@ -8,6 +8,7 @@ import { CM, PAGINA_PADRAO, dimensoes, docxParaHtml, htmlParaDocx } from "./docx
 import * as T from "./textoTabelas.js";
 import { ESTILOS_PADRAO, cssEstilos, estilosDe } from "./textoEstilos.js";
 import * as R from "./textoRevisao.js";
+import { fontesSubstitutas, recursoDataUrl, recursoTexto } from "./fontesPdf.js";
 import { TIPOS, arquivoLembrado, baixar, escolherArquivo, gravarNoArquivo, lembrarArquivo, recursosNaoSuportados, salvarComo, suportaArquivoLocal } from "./arquivoLocal.js";
 
 const GOLD = "#9a6e1e";
@@ -31,56 +32,6 @@ function novoDoc(nome = "Documento sem título", extra = {}) {
 
 // Montador de páginas (paged.js) carregado na janela de impressão/PDF.
 const pagedUrl = new URL("../node_modules/pagedjs/dist/paged.polyfill.min.js", import.meta.url).href;
-// Arquivos do app em texto/base64 (para embutir na página do PDF), guardados após a 1ª vez.
-const cacheRecursos = new Map();
-function recursoTexto(url) {
-  if (!cacheRecursos.has(url)) cacheRecursos.set(url, fetch(url).then((r) => { if (!r.ok) throw new Error("recurso indisponível"); return r.text(); }));
-  return cacheRecursos.get(url);
-}
-function recursoDataUrl(url) {
-  const chave = "data:" + url;
-  if (!cacheRecursos.has(chave)) cacheRecursos.set(chave, fetch(url).then((r) => r.blob()).then((b) => new Promise((ok, erro) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = erro; fr.readAsDataURL(b); })));
-  return cacheRecursos.get(chave);
-}
-// Fontes de mesmas medidas para o PDF gerado no servidor, que não tem Times, Arial etc.:
-// entram só as das famílias usadas no documento.
-const ARQ_SUBSTITUTAS = {
-    "tinos-400-normal": new URL("../node_modules/@fontsource/tinos/files/tinos-latin-400-normal.woff2", import.meta.url).href,
-    "tinos-400-italic": new URL("../node_modules/@fontsource/tinos/files/tinos-latin-400-italic.woff2", import.meta.url).href,
-    "tinos-700-normal": new URL("../node_modules/@fontsource/tinos/files/tinos-latin-700-normal.woff2", import.meta.url).href,
-    "tinos-700-italic": new URL("../node_modules/@fontsource/tinos/files/tinos-latin-700-italic.woff2", import.meta.url).href,
-    "arimo-400-normal": new URL("../node_modules/@fontsource/arimo/files/arimo-latin-400-normal.woff2", import.meta.url).href,
-    "arimo-400-italic": new URL("../node_modules/@fontsource/arimo/files/arimo-latin-400-italic.woff2", import.meta.url).href,
-    "arimo-700-normal": new URL("../node_modules/@fontsource/arimo/files/arimo-latin-700-normal.woff2", import.meta.url).href,
-    "arimo-700-italic": new URL("../node_modules/@fontsource/arimo/files/arimo-latin-700-italic.woff2", import.meta.url).href,
-    "carlito-400-normal": new URL("../node_modules/@fontsource/carlito/files/carlito-latin-400-normal.woff2", import.meta.url).href,
-    "carlito-400-italic": new URL("../node_modules/@fontsource/carlito/files/carlito-latin-400-italic.woff2", import.meta.url).href,
-    "carlito-700-normal": new URL("../node_modules/@fontsource/carlito/files/carlito-latin-700-normal.woff2", import.meta.url).href,
-    "carlito-700-italic": new URL("../node_modules/@fontsource/carlito/files/carlito-latin-700-italic.woff2", import.meta.url).href,
-    "cousine-400-normal": new URL("../node_modules/@fontsource/cousine/files/cousine-latin-400-normal.woff2", import.meta.url).href,
-    "cousine-400-italic": new URL("../node_modules/@fontsource/cousine/files/cousine-latin-400-italic.woff2", import.meta.url).href,
-    "cousine-700-normal": new URL("../node_modules/@fontsource/cousine/files/cousine-latin-700-normal.woff2", import.meta.url).href,
-    "cousine-700-italic": new URL("../node_modules/@fontsource/cousine/files/cousine-latin-700-italic.woff2", import.meta.url).href,
-};
-const SUBSTITUTAS = [
-  [["Times New Roman", "Times", "Georgia", "Cambria", "Book Antiqua", "Garamond"], "tinos"],
-  [["Arial", "Helvetica", "Verdana", "Tahoma", "Segoe UI"], "arimo"],
-  [["Calibri"], "carlito"],
-  [["Courier New", "Courier"], "cousine"],
-];
-async function fontesSubstitutas(html) {
-  let css = "";
-  for (const [familias, arq] of SUBSTITUTAS) {
-    const usadas = familias.filter((f) => new RegExp(`["'\\s,:=]${f}["'\\s,;]`, "i").test(html));
-    for (const f of usadas) {
-      for (const [peso, estilo] of [[400, "normal"], [400, "italic"], [700, "normal"], [700, "italic"]]) {
-        const dado = await recursoDataUrl(ARQ_SUBSTITUTAS[`${arq}-${peso}-${estilo}`]);
-        css += `@font-face { font-family: "${f}"; font-weight: ${peso}; font-style: ${estilo}; src: local("${f}"), url("${dado}") format("woff2"); }\n`;
-      }
-    }
-  }
-  return css;
-}
 async function fontesEmbutidas() {
   let css = CSS_FONTES;
   for (const url of [...new Set([...CSS_FONTES.matchAll(/url\("([^"]+)"\)/g)].map((m) => m[1]))]) {

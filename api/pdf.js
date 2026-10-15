@@ -22,7 +22,8 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Use POST.' });
   if (!exigirSessao(req, res)) return;
   const { html } = req.body || {};
-  if (typeof html !== 'string' || !html.includes('PagedPolyfill')) return res.status(400).json({ error: 'Página para o PDF inválida.' });
+  // A página avisa quando está pronta (window.__pdfPronto); sem isso, não há o que gerar.
+  if (typeof html !== 'string' || !html.includes('__pdfPronto')) return res.status(400).json({ error: 'Página para o PDF inválida.' });
 
   let pagina;
   try {

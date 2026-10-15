@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { renderAsync } from "docx-preview";
+import { fontesSubstitutas } from "./fontesPdf.js";
 import fonte400 from "@fontsource/archivo-narrow/files/archivo-narrow-latin-400-normal.woff2?url";
 import fonte400i from "@fontsource/archivo-narrow/files/archivo-narrow-latin-400-italic.woff2?url";
 import fonte700 from "@fontsource/archivo-narrow/files/archivo-narrow-latin-700-normal.woff2?url";
@@ -13,8 +14,8 @@ const LARGURA_PAGINA = 794; // A4 (21cm) em px
 // tenta Arial Narrow e, por fim, a Archivo Narrow que vai junto com o app.
 // Cada variação aponta para o arquivo dela ("Arial Nova Cond Bold" etc.): apontar o
 // negrito para a fonte normal instalada fazia o negrito sumir no PDF.
-function cssFontes() {
-  const abs = (u) => new URL(u, window.location.href).href;
+function cssFontes(embutidas) {
+  const abs = (u) => embutidas?.[u] || new URL(u, window.location.href).href;
   const face = (url, peso, estilo, sufixo) => {
     const locais = sufixo
       ? [`Arial Nova Cond ${sufixo}`, `ArialNovaCond-${sufixo.replace(" ", "")}`, `ArialNova-Cond${sufixo.replace(" ", "")}`, `Arial Narrow ${sufixo}`, `ArialNarrow-${sufixo.replace(" ", "")}`]
@@ -32,7 +33,7 @@ const px = (v) => parseFloat(v) || 0;
 // Monta o HTML para impressão: o texto corre livre entre as páginas, com margens do Word;
 // cabeçalho e rodapé ficam fixos (repetem em toda página) e os espaçadores de thead/tfoot
 // reservam a área deles em cada página.
-function htmlImpressao(container, titulo) {
+function htmlImpressao(container, titulo, fontes = cssFontes()) {
   const secoes = Array.from(container.querySelectorAll("section.docx"));
   const sec = secoes[0];
   const cs = getComputedStyle(sec);
@@ -50,10 +51,10 @@ function htmlImpressao(container, titulo) {
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>${titulo.replace(/[<>&"]/g, "")}</title>
-    <style>${cssFontes()}</style>${estilos}
+    <style>${fontes}</style>${estilos}
     <style>
       @page { size: A4; margin: 0; }
-      html, body { margin: 0; padding: 0; background: #fff; }
+      html, body { margin: 0; padding: 0; background: #fff; font-family: "Arial Nova Cond", sans-serif; }
       .docx-wrapper { background: #fff !important; padding: 0 !important; display: block !important; }
       .docx-wrapper > section.docx { padding: 0 !important; margin: 0 !important; width: auto !important; min-height: 0 !important; box-shadow: none !important; display: block !important; }
       .cab, .rod { position: fixed; left: ${padL}px; right: ${padR}px; margin: 0 !important; min-height: 0 !important; }
@@ -95,6 +96,37 @@ function ajustarEspacos(doc) {
   });
 }
 
+// Arquivos de fonte em base64, para a página do PDF ir completa ao servidor.
+const cacheFontes = {};
+async function fontesEmbutidas() {
+  for (const u of [fonte400, fonte400i, fonte700, fonte700i]) {
+    if (!cacheFontes[u]) {
+      const b = await (await fetch(u)).blob();
+      cacheFontes[u] = await new Promise((ok, erro) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = erro; fr.readAsDataURL(b); });
+    }
+  }
+  return cssFontes(cacheFontes);
+}
+
+// O servidor (api/pdf.js, o mesmo do editor de Texto) abre a página, ajusta os espaços do
+// cabeçalho/rodapé e devolve o PDF pronto para baixar.
+async function pdfNoServidor(container, titulo) {
+  let html = htmlImpressao(container, titulo, await fontesEmbutidas());
+  // Outras fontes do modelo (ex.: Arial no rodapé): equivalentes embutidas, o servidor não as tem.
+  const extras = await fontesSubstitutas(html);
+  if (extras) html = html.replace("</head>", () => `<style>${extras}</style></head>`);
+  const script = `<script>(async () => { try { await document.fonts.ready; (${ajustarEspacos.toString()})(document);
+    window.__pdfPronto = true; } catch (e) { window.__pdfErro = String((e && e.message) || e); } })();</script>`;
+  html = html.replace("</body></html>", () => `${script}</body></html>`);
+  if (html.length > 4.3e6) throw new Error("documento grande demais para gerar no servidor");
+  const r = await fetch("/api/pdf", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ html }) });
+  if (!r.ok || !/pdf/.test(r.headers.get("content-type") || "")) {
+    const j = await r.json().catch(() => ({}));
+    throw new Error(j.error || (r.status === 404 ? "servidor de PDF indisponível" : `erro ${r.status}`));
+  }
+  return r.blob();
+}
+
 function baixar(blob, nome) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -132,7 +164,32 @@ export default function PreviaDocumento({ blob, nomeArquivo, titulo, onVoltar, o
 
   // Abre o documento numa aba própria e chama a impressão: "Salvar como PDF"
   // gera um PDF com texto pesquisável, aceito pelos sistemas dos tribunais.
+  const [gerandoPdf, setGerandoPdf] = useState(false);
+  const [erroPdf, setErroPdf] = useState("");
+
+  // Baixar PDF: gerado no servidor e baixado direto, sem a janela de impressão.
   async function baixarPdf() {
+    if (gerandoPdf) return;
+    setGerandoPdf(true);
+    setErroPdf("");
+    const oculto = document.createElement("div");
+    oculto.style.cssText = "position:absolute;left:-10000px;top:0;width:900px";
+    document.body.appendChild(oculto);
+    try {
+      // Imagens em base64 (o servidor não alcança os endereços temporários do navegador)
+      await renderAsync(blob, oculto, null, { ...OPCOES_RENDER, ignoreLastRenderedPageBreak: true, useBase64URL: true });
+      await document.fonts.ready;
+      baixar(await pdfNoServidor(oculto, nomeArquivo), nomeArquivo + ".pdf");
+    } catch (e) {
+      setErroPdf(e.message || String(e));
+    } finally {
+      oculto.remove();
+      setGerandoPdf(false);
+    }
+  }
+
+  // Reserva: abre o documento numa aba e chama a impressão ("Salvar como PDF").
+  async function imprimirPdf() {
     // A aba precisa ser aberta já no clique, senão o navegador a bloqueia
     const janela = window.open("", "_blank");
     if (!janela) {
@@ -176,8 +233,14 @@ export default function PreviaDocumento({ blob, nomeArquivo, titulo, onVoltar, o
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
         <button onClick={() => baixar(blob, nomeArquivo + ".docx")} style={sBtnAcao(true)}>📄 Baixar Word</button>
-        <button onClick={baixarPdf} disabled={status !== "ok"} style={{ ...sBtnAcao(false), opacity: status === "ok" ? 1 : 0.5 }}>📑 Baixar PDF</button>
+        <button onClick={baixarPdf} disabled={status !== "ok" || gerandoPdf} style={{ ...sBtnAcao(false), opacity: status === "ok" && !gerandoPdf ? 1 : 0.5 }}>{gerandoPdf ? "⏳ Gerando PDF..." : "📑 Baixar PDF"}</button>
       </div>
+      {erroPdf && (
+        <p style={{ fontSize: 13, color: "#8a3a1a", fontFamily: "sans-serif", margin: "0 0 12px", lineHeight: 1.5 }}>
+          Não foi possível gerar o PDF direto ({erroPdf}).{" "}
+          <button onClick={imprimirPdf} style={{ background: "none", border: "none", color: GOLD, textDecoration: "underline", cursor: "pointer", padding: 0, font: "inherit" }}>Abrir a janela de impressão</button> e escolher "Salvar como PDF".
+        </p>
+      )}
 
       <div ref={areaRef} style={{ background: "#9aa39a", borderRadius: 10, padding: 12, maxHeight: "70vh", overflow: "auto" }}>
         {status === "carregando" && <p style={{ textAlign: "center", color: "#fff", fontFamily: "sans-serif" }}>Montando a prévia...</p>}
