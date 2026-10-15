@@ -117,11 +117,11 @@ const CSS_FONTES = [["Arial Narrow", "ArialNarrow"], ["Arial Nova Cond", "ArialN
 function local(n) { return `local("${n}")`; }
 
 const FONTE_UI = "'Segoe UI', system-ui, -apple-system, sans-serif";
-const COR_TITULO = "#6f5016"; // dourado escuro do app
+const COR_TITULO = "#8a6a2c"; // dourado do app, em tom mais leve
 const COR_ABAS = "#ece6d8";
 const COR_FAIXA = "#f8f5ee";
-const COR_STATUS = "#3a4339";
-const COR_FUNDO_ESCURO = "#4a5249"; // em volta da página: cansa menos a vista
+const COR_STATUS = "#5a6458";
+const COR_FUNDO_ESCURO = "#6b7468"; // em volta da página: mais escuro que a folha, sem pesar
 const ABAS = [["arquivo", "Arquivo"], ["inicio", "Página Inicial"], ["inserir", "Inserir"], ["layout", "Layout"], ["referencias", "Referências"], ["revisao", "Revisão"], ["exibir", "Exibir"]];
 const SIMBOLOS = ["§", "º", "ª", "–", "—", "…", "“", "”", "«", "»", "©", "®", "™", "°", "½", "€", "•", "¶"];
 const sRapido = { background: "transparent", border: 0, color: "#fff", fontSize: 15, cursor: "pointer", padding: "2px 6px", borderRadius: 4 };
@@ -1373,15 +1373,15 @@ export default function EditorTexto() {
     const { html, comMarcas, cssOutra } = montarImpressao();
     w.document.write(html);
     w.document.close();
-    const barra = `<div style="position:fixed;top:0;left:0;right:0;z-index:10;display:flex;align-items:center;gap:12px;padding:10px 16px;background:#6f5016;color:#fff;font:14px sans-serif;box-shadow:0 2px 6px rgba(0,0,0,0.3)">
+    const barra = `<div style="position:fixed;top:0;left:0;right:0;z-index:10;display:flex;align-items:center;gap:12px;padding:10px 16px;background:#8a6a2c;color:#fff;font:14px sans-serif;box-shadow:0 2px 6px rgba(0,0,0,0.3)">
       <b>${esc(atual.nome)}</b><span id="estado-pdf">Montando as páginas…</span><span style="flex:1"></span>
-      <button id="btn-pdf" style="padding:6px 14px;border:0;border-radius:5px;background:#fff;color:#6f5016;font-weight:600;cursor:pointer">${pdf ? "Salvar como PDF" : "Imprimir"}</button></div>`;
+      <button id="btn-pdf" style="padding:6px 14px;border:0;border-radius:5px;background:#fff;color:#8a6a2c;font-weight:600;cursor:pointer">${pdf ? "Salvar como PDF" : "Imprimir"}</button></div>`;
     // Depois que o paged.js monta as páginas: barra no topo e janela de impressão.
     w.prontoParaImprimir = (total) => {
       w.document.head.insertAdjacentHTML("beforeend", cssOutra);
       // Só na tela: folhas com sombra sobre fundo escuro, como na visualização de impressão do Word.
       w.document.body.insertAdjacentHTML("afterbegin", `<style>@media print { #barra-pdf { display: none !important; } }
-        @media screen { html, body { background: #4a5249; } .pagedjs_pages { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 64px 0 24px; }
+        @media screen { html, body { background: #6b7468; } .pagedjs_pages { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 64px 0 24px; }
         .pagedjs_page { background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,0.35); } }</style><div id="barra-pdf">${barra}</div>`);
       w.document.getElementById("estado-pdf").textContent = `${total} página${total === 1 ? "" : "s"}${comMarcas ? " · com marcações de revisão" : ""}${pdf ? ' — na janela de impressão escolha Destino: "Salvar como PDF"' : ""}`;
       w.document.getElementById("btn-pdf").onclick = () => w.print();
