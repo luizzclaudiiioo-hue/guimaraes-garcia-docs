@@ -298,6 +298,7 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, cabecalho1 = 
 
   // Lista com subníveis (Tab): o Chrome põe a sublista dentro do <li> ou direto no <ol>.
   let instanciaLista = 0; // cada lista recomeça do 1
+  const ultimaLista = new Map(); // formato → { instância, itens } da última lista
   function lista(el, nivel, ref, inst, out) {
     const r = el.tagName === "OL" ? ref : "marcadores";
     for (const filho of el.children) {
@@ -321,7 +322,15 @@ export async function htmlParaDocx(doc, { html, cabecalho, rodape, cabecalho1 = 
         else out.push(paragrafo(filho));
       } else if (tag === "UL" || tag === "OL") {
         fecharSoltos();
-        lista(filho, 0, `num-${(tag === "OL" && FORMATOS_LISTA[filho.dataset.num] && filho.dataset.num) || "decimal"}`, ++instanciaLista, out);
+        const ref = `num-${(tag === "OL" && FORMATOS_LISTA[filho.dataset.num] && filho.dataset.num) || "decimal"}`;
+        // <ol start="N"> que continua a lista anterior do mesmo formato (interrompida por um
+        // parágrafo): mesma numeração no Word, sem recomeçar do 1.
+        const itens = filho.querySelectorAll(":scope > li").length;
+        const ant = ultimaLista.get(ref);
+        const continua = tag === "OL" && ant && Number(filho.getAttribute("start")) === ant.itens + 1;
+        const inst = continua ? ant.inst : ++instanciaLista;
+        ultimaLista.set(ref, { inst, itens: (continua ? ant.itens : 0) + itens });
+        lista(filho, 0, ref, inst, out);
       } else if (tag === "TABLE") {
         fecharSoltos();
         out.push(tabela(filho));
@@ -484,20 +493,23 @@ function formatarContador(n, estilo) {
   }
 }
 
-// Numeração automática do Word vem como contador CSS em ::before; aqui vira texto.
+// Numeração automática do Word vem como contador CSS em ::before. Devolve o texto do
+// número e o que é preciso para remontar a lista (id, nível, valor, formato do nível).
 function criarNumerador() {
   const contagem = {};
   return (el) => {
     const cls = [...el.classList].find((c) => /-num-\d+-\d+$/.test(c));
-    if (!cls) return "";
+    if (!cls) return null;
     const [, prefixo, id, nivel] = /^(.*-num-)(\d+)-(\d+)$/.exec(cls);
     const lv = Number(nivel);
     contagem[id] = contagem[id] || [];
     contagem[id][lv] = (contagem[id][lv] || 0) + 1;
     contagem[id].length = lv + 1;
     const conteudo = getComputedStyle(el, "::before").content;
-    if (!conteudo || conteudo === "none" || conteudo === "normal") return "";
+    if (!conteudo || conteudo === "none" || conteudo === "normal") return null;
     let texto = "";
+    let estilo = "decimal";
+    let contadores = 0;
     const re = /"((?:[^"\\]|\\.)*)"|counter\(([^,)]+)(?:,\s*([\w-]+))?\)/g;
     let m;
     while ((m = re.exec(conteudo))) {
@@ -507,18 +519,87 @@ function criarNumerador() {
         const ml = new RegExp("^" + prefixo.replace(/[-]/g, "\\-") + id + "-(\\d+)$").exec(nome);
         const n = ml ? contagem[id][Number(ml[1])] || 1 : 1;
         texto += formatarContador(n, m[3]);
+        contadores++;
+        if (!ml || Number(ml[1]) === lv) estilo = m[3] || "decimal";
       }
     }
     // Marcadores em fontes de símbolo (Symbol/Wingdings) viram "•".
-    if (/^[-]/.test(texto) || (texto.trim().length === 1 && !/[\w\d]/.test(texto.trim()))) texto = "•";
-    return texto;
+    const marcador = !contadores && (/^[\uf000-\uf0ff]/.test(texto) || (texto.trim().length <= 2 && !/[\w\d]/.test(texto.trim())));
+    if (marcador) texto = "\u2022";
+    return { texto, id, nivel: lv, valor: contagem[id][lv], estilo, contadores, marcador };
   };
 }
 
-function inlinarEstilos(orig, copia) {
+// Parágrafos numerados do Word (marcados em data-lista-*) voltam a ser listas automáticas
+// <ol>/<ul> aninhadas, com o formato mais próximo dos do editor.
+function montarListas(raiz) {
+  const conteineres = [raiz, ...raiz.querySelectorAll("td,th,blockquote")];
+  for (const cont of conteineres) {
+    let pilha = [];
+    for (const el of [...cont.childNodes]) {
+      if (el.nodeType === 3 && !el.data.trim()) continue;
+      if (el.nodeType !== 1 || !el.dataset.listaId) { pilha = []; continue; }
+      const nivel = Number(el.dataset.listaNivel) || 0;
+      const marcador = el.dataset.listaMarcador === "1";
+      while (pilha.length && pilha[pilha.length - 1].nivel > nivel) pilha.pop();
+      let topo = pilha[pilha.length - 1];
+      // Mesmo nível mas outra lista (ou numerada ↔ marcadores): começa outra.
+      if (topo && topo.nivel === nivel && (topo.id !== el.dataset.listaId || topo.marcador !== marcador)) { pilha.pop(); topo = pilha[pilha.length - 1]; }
+      if (!topo || topo.nivel < nivel) {
+        const lista = document.createElement(marcador ? "ul" : "ol");
+        if (topo) (topo.lista.lastElementChild || topo.lista).appendChild(lista);
+        else {
+          cont.insertBefore(lista, el);
+          const valor = Number(el.dataset.listaValor) || 1;
+          if (!marcador && valor > 1) lista.setAttribute("start", String(valor));
+        }
+        const raizLista = topo ? topo.raiz : lista;
+        // Formato guardado por lista do Word: a parte retomada depois de uma interrupção
+        // usa o mesmo formato da primeira.
+        if (!topo) { if (!infoListas.has(el.dataset.listaId)) infoListas.set(el.dataset.listaId, {}); idDaLista.set(lista, el.dataset.listaId); }
+        topo = { lista, nivel, id: el.dataset.listaId, marcador, raiz: raizLista };
+        pilha.push(topo);
+      }
+      const info = infoListas.get(idDaLista.get(topo.raiz));
+      if (info && !info[nivel]) info[nivel] = { estilo: el.dataset.listaEstilo, contadores: Number(el.dataset.listaContadores) || 1 };
+      const li = document.createElement("li");
+      const st = (el.getAttribute("style") || "").split(";").filter((x) => x.trim() && !/^\s*(margin-left|text-indent|padding-left)\s*:/.test(x)).join(";");
+      if (st) li.setAttribute("style", st);
+      // A tabulação que o Word põe depois do número não faz sentido no item.
+      if (el.firstChild?.nodeType === 1 && el.firstChild.classList?.contains("tab")) el.firstChild.remove();
+      li.append(...el.childNodes);
+      topo.lista.appendChild(li);
+      el.remove();
+    }
+  }
+  // Parágrafo numerado fora de onde as listas são montadas: o número volta como texto.
+  raiz.querySelectorAll("[data-lista-id]").forEach((el) => {
+    el.insertBefore(spanTab(), el.firstChild);
+    el.insertBefore(document.createTextNode(el.dataset.listaTexto || ""), el.firstChild);
+  });
+  raiz.querySelectorAll("[data-lista-id]").forEach((el) => {
+    for (const a of [...el.attributes]) if (a.name.startsWith("data-lista-")) el.removeAttribute(a.name);
+  });
+  // Formato: o do editor que mais se parece com os níveis do Word.
+  raiz.querySelectorAll("ol").forEach((ol) => {
+    const n = infoListas.get(idDaLista.get(ol));
+    if (!n) return;
+    const e0 = n[0]?.estilo || "", e1 = n[1]?.estilo || "";
+    let fmt = "";
+    if (n[1]?.contadores > 1 || n[0]?.contadores > 1) fmt = "juridico";
+    else if (/upper-roman/.test(e0)) fmt = "romano";
+    else if (/lower-(alpha|latin)/.test(e0)) fmt = "letras";
+    else if (/lower-(alpha|latin)/.test(e1)) fmt = "alfa";
+    if (fmt) ol.dataset.num = fmt;
+  });
+}
+const infoListas = new Map(); // id da lista do Word → formato de cada nível (zerado a cada arquivo aberto)
+const idDaLista = new WeakMap();
+
+
+function inlinarEstilos(orig, copia, numerar = criarNumerador()) {
   const os = [orig, ...orig.querySelectorAll("*")];
   const cs = [copia, ...copia.querySelectorAll("*")];
-  const numerar = criarNumerador();
   let ultimaFonte = null;
   os.forEach((o, i) => {
     const c = cs[i];
@@ -609,11 +690,13 @@ function inlinarEstilos(orig, copia) {
     if (tag === "COL" && (o.style.width || o.getAttribute("width"))) decl.push(`width:${o.style.width || o.getAttribute("width") + "px"}`);
     if (decl.length) c.setAttribute("style", decl.join(";"));
     // Parágrafo com estilo "Título 1/2/3" do Word vira título de verdade (o sumário depende disso).
+    let destino = c;
     if (nivelTitulo) {
       const h = document.createElement("h" + nivelTitulo[1]);
       if (c.getAttribute("style")) h.setAttribute("style", c.getAttribute("style"));
       h.append(...c.childNodes);
       c.replaceWith(h);
+      destino = h;
     }
     if (bloco && tag !== "TD" && tag !== "TH") {
       // No Word a altura de uma linha em branco vem da fonte do parágrafo; o HTML não traz
@@ -627,8 +710,17 @@ function inlinarEstilos(orig, copia) {
       }
     }
     if (bloco) {
-      const numero = numerar(o);
-      if (numero) { c.insertBefore(spanTab(), c.firstChild); c.insertBefore(document.createTextNode(numero), c.firstChild); }
+      const num = numerar(o);
+      // Título numerado ("1. DOS FATOS") continua título, com o número como texto.
+      if (num && tag === "P" && !nivelTitulo) {
+        c.dataset.listaTexto = num.texto;
+        c.dataset.listaId = num.id;
+        c.dataset.listaNivel = num.nivel;
+        c.dataset.listaValor = num.valor;
+        c.dataset.listaEstilo = num.estilo;
+        c.dataset.listaContadores = num.contadores;
+        if (num.marcador) c.dataset.listaMarcador = "1";
+      } else if (num?.texto) { destino.insertBefore(spanTab(), destino.firstChild); destino.insertBefore(document.createTextNode(num.texto), destino.firstChild); }
     }
     if (o.classList.contains?.("docx-tab-stop") || /tab-stop/.test(o.className)) {
       // Tabulação: guarda onde o texto seguinte começa como parada do parágrafo (data-tabs,
@@ -708,10 +800,11 @@ async function cabecalhosSemTitlePg(buffer, renderAsync) {
   }
 }
 
-function converterArea(el) {
+function converterArea(el, numerar) {
   if (!el) return "";
   const copia = el.cloneNode(true);
-  inlinarEstilos(el, copia);
+  inlinarEstilos(el, copia, numerar);
+  montarListas(copia);
   return limpar(copia);
 }
 
@@ -755,7 +848,10 @@ export async function docxParaHtml(buffer) {
         notas[id] = converterArea(itens[i]);
       });
     }
-    const corpos = secoes.map((s) => converterArea(s.querySelector("article")));
+    infoListas.clear();
+    // Um só contador para o documento todo: a numeração continua de uma página para a outra.
+    const numerarCorpo = criarNumerador();
+    const corpos = secoes.map((s) => converterArea(s.querySelector("article"), numerarCorpo));
     // Marcadores de início/fim de comentário viram trechos destacados.
     const juntar = document.createElement("div");
     // Páginas viram quebras de página; mudança de orientação vira quebra de seção.

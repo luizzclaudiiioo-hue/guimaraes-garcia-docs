@@ -31,6 +31,63 @@ function novoDoc(nome = "Documento sem título", extra = {}) {
 
 // Montador de páginas (paged.js) carregado na janela de impressão/PDF.
 const pagedUrl = new URL("../node_modules/pagedjs/dist/paged.polyfill.min.js", import.meta.url).href;
+// Arquivos do app em texto/base64 (para embutir na página do PDF), guardados após a 1ª vez.
+const cacheRecursos = new Map();
+function recursoTexto(url) {
+  if (!cacheRecursos.has(url)) cacheRecursos.set(url, fetch(url).then((r) => { if (!r.ok) throw new Error("recurso indisponível"); return r.text(); }));
+  return cacheRecursos.get(url);
+}
+function recursoDataUrl(url) {
+  const chave = "data:" + url;
+  if (!cacheRecursos.has(chave)) cacheRecursos.set(chave, fetch(url).then((r) => r.blob()).then((b) => new Promise((ok, erro) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = erro; fr.readAsDataURL(b); })));
+  return cacheRecursos.get(chave);
+}
+// Fontes de mesmas medidas para o PDF gerado no servidor, que não tem Times, Arial etc.:
+// entram só as das famílias usadas no documento.
+const ARQ_SUBSTITUTAS = {
+    "tinos-400-normal": new URL("../node_modules/@fontsource/tinos/files/tinos-latin-400-normal.woff2", import.meta.url).href,
+    "tinos-400-italic": new URL("../node_modules/@fontsource/tinos/files/tinos-latin-400-italic.woff2", import.meta.url).href,
+    "tinos-700-normal": new URL("../node_modules/@fontsource/tinos/files/tinos-latin-700-normal.woff2", import.meta.url).href,
+    "tinos-700-italic": new URL("../node_modules/@fontsource/tinos/files/tinos-latin-700-italic.woff2", import.meta.url).href,
+    "arimo-400-normal": new URL("../node_modules/@fontsource/arimo/files/arimo-latin-400-normal.woff2", import.meta.url).href,
+    "arimo-400-italic": new URL("../node_modules/@fontsource/arimo/files/arimo-latin-400-italic.woff2", import.meta.url).href,
+    "arimo-700-normal": new URL("../node_modules/@fontsource/arimo/files/arimo-latin-700-normal.woff2", import.meta.url).href,
+    "arimo-700-italic": new URL("../node_modules/@fontsource/arimo/files/arimo-latin-700-italic.woff2", import.meta.url).href,
+    "carlito-400-normal": new URL("../node_modules/@fontsource/carlito/files/carlito-latin-400-normal.woff2", import.meta.url).href,
+    "carlito-400-italic": new URL("../node_modules/@fontsource/carlito/files/carlito-latin-400-italic.woff2", import.meta.url).href,
+    "carlito-700-normal": new URL("../node_modules/@fontsource/carlito/files/carlito-latin-700-normal.woff2", import.meta.url).href,
+    "carlito-700-italic": new URL("../node_modules/@fontsource/carlito/files/carlito-latin-700-italic.woff2", import.meta.url).href,
+    "cousine-400-normal": new URL("../node_modules/@fontsource/cousine/files/cousine-latin-400-normal.woff2", import.meta.url).href,
+    "cousine-400-italic": new URL("../node_modules/@fontsource/cousine/files/cousine-latin-400-italic.woff2", import.meta.url).href,
+    "cousine-700-normal": new URL("../node_modules/@fontsource/cousine/files/cousine-latin-700-normal.woff2", import.meta.url).href,
+    "cousine-700-italic": new URL("../node_modules/@fontsource/cousine/files/cousine-latin-700-italic.woff2", import.meta.url).href,
+};
+const SUBSTITUTAS = [
+  [["Times New Roman", "Times", "Georgia", "Cambria", "Book Antiqua", "Garamond"], "tinos"],
+  [["Arial", "Helvetica", "Verdana", "Tahoma", "Segoe UI"], "arimo"],
+  [["Calibri"], "carlito"],
+  [["Courier New", "Courier"], "cousine"],
+];
+async function fontesSubstitutas(html) {
+  let css = "";
+  for (const [familias, arq] of SUBSTITUTAS) {
+    const usadas = familias.filter((f) => new RegExp(`["'\\s,:=]${f}["'\\s,;]`, "i").test(html));
+    for (const f of usadas) {
+      for (const [peso, estilo] of [[400, "normal"], [400, "italic"], [700, "normal"], [700, "italic"]]) {
+        const dado = await recursoDataUrl(ARQ_SUBSTITUTAS[`${arq}-${peso}-${estilo}`]);
+        css += `@font-face { font-family: "${f}"; font-weight: ${peso}; font-style: ${estilo}; src: local("${f}"), url("${dado}") format("woff2"); }\n`;
+      }
+    }
+  }
+  return css;
+}
+async function fontesEmbutidas() {
+  let css = CSS_FONTES;
+  for (const url of [...new Set([...CSS_FONTES.matchAll(/url\("([^"]+)"\)/g)].map((m) => m[1]))]) {
+    css = css.split(`url("${url}")`).join(`url("${await recursoDataUrl(new URL(url, location.href).href)}")`);
+  }
+  return css;
+}
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 // Remove scripts e atributos de evento de HTML vindo de fora.
@@ -1204,9 +1261,9 @@ export default function EditorTexto() {
   // Impressão e PDF: o paged.js monta as páginas de verdade (como o Word) na janela de
   // visualização: cabeçalho/rodapé em cada página (1ª página diferente), "Página X de Y",
   // notas no pé da própria página e sumário com os números de página exatos.
-  function imprimir(pdf = false) {
-    const w = window.open("", "_blank");
-    if (!w) return setMsg("Permita pop-ups para imprimir ou salvar em PDF.");
+  // Página de impressão (HTML completo, sem scripts) usada pela janela de impressão e pelo
+  // PDF gerado no servidor. `fontes` é o CSS das fontes (com endereços ou já embutidas).
+  function montarImpressao(fontes = CSS_FONTES.replace(/url\("\//g, `url("${location.origin}/`)) {
     const fonteN = `'${estilos.normal.fonte}', sans-serif`;
     // Corpo: notas viram notas de rodapé do paged.js; sumário aponta para os títulos.
     const corpo = document.createElement("div");
@@ -1224,6 +1281,25 @@ export default function EditorTexto() {
       if (num) num.outerHTML = `<a class="sum-pag" href="#titulo-${item.dataset.alvo}"></a>`;
     });
     corpo.querySelectorAll("[contenteditable]").forEach((x) => x.removeAttribute("contenteditable"));
+    // Marcações de revisão: como no Word, saem no PDF quando estão visíveis na tela
+    // (Exibir › Marcações de revisão). Comentários viram [C1], [C2]… com a lista no fim.
+    const comMarcas = mostrarMarcas && (!!corpo.querySelector("ins.rev, del.rev") || corpo.querySelector("span.coment") !== null);
+    let listaComentarios = "";
+    if (comMarcas) {
+      const ordem = [...new Set([...corpo.querySelectorAll("span.coment[data-c]")].map((x) => x.dataset.c))].filter((id) => comentarios[id] && !comentarios[id].resolvido);
+      ordem.forEach((id, i) => {
+        const trechos = corpo.querySelectorAll(`span.coment[data-c="${CSS.escape(id)}"]`);
+        trechos[trechos.length - 1].insertAdjacentHTML("afterend", `<sup class="com-ref">[C${i + 1}]</sup>`);
+      });
+      const quando = (d) => (d ? new Date(d).toLocaleDateString("pt-BR") : "");
+      if (ordem.length) listaComentarios = `<div class="lista-com"><p class="lista-com-titulo">Comentários</p>${ordem.map((id, i) => {
+        const c = comentarios[id];
+        const resp = (c.respostas || []).map((r) => `<br>↳ <b>${esc(r.autor || "")}</b> (${quando(r.data)}): ${esc(r.texto || "")}`).join("");
+        return `<p><b>[C${i + 1}] ${esc(c.autor || "")}</b> (${quando(c.data)}): ${esc(c.texto || "")}${resp}</p>`;
+      }).join("")}</div>`;
+    } else corpo.querySelectorAll("span.coment").forEach((x) => x.classList.remove("coment"));
+    // Fica dentro do corpo (e da última seção), no fim do documento.
+    if (listaComentarios) corpo.insertAdjacentHTML("beforeend", listaComentarios);
     const numero = atual.numPag
       ? `<div style="text-align:${atual.numPag === "direita" ? "right" : "center"};font:10pt ${fonteN}">${atual.numPag === "xdey" ? 'Página <span class="pg"></span> de <span class="pgs"></span>' : '<span class="pg"></span>'}</div>`
       : "";
@@ -1250,7 +1326,13 @@ export default function EditorTexto() {
       // Cabeçalho/rodapé dentro da 1ª caixa: fora dela a 1ª página sairia sem nome (e em branco).
       corpo.firstElementChild.insertAdjacentHTML("afterbegin", areas);
     }
-    w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(atual.nome)}</title>
+    // O paged.js desenha as páginas da outra orientação, mas imprime tudo num só tamanho:
+    // depois de montadas, as páginas "outra" ganham o próprio @page.
+    const cssOutra = `<style>@page outra { size: ${largOutra}cm ${altOutra}cm; margin: 0; }
+        .pagedjs_page.pagedjs_outra_page { page: outra; width: ${largOutra}cm; height: ${altOutra}cm;
+          --pagedjs-width: ${largOutra}cm; --pagedjs-height: ${altOutra}cm; --pagedjs-width-right: ${largOutra}cm; --pagedjs-height-right: ${altOutra}cm;
+          --pagedjs-width-left: ${largOutra}cm; --pagedjs-height-left: ${altOutra}cm; }</style>`;
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(atual.nome)}</title>
       <style>
         @page { size: ${largCm}cm ${altCm}cm; margin: ${m.sup}cm ${m.dir}cm ${m.inf}cm ${m.esq}cm;
           @top-center { content: element(cabecalho); vertical-align: bottom; padding-bottom: 8pt; }
@@ -1259,7 +1341,7 @@ export default function EditorTexto() {
         @page outra { size: ${largOutra}cm ${altOutra}cm; } @page base { size: ${largCm}cm ${altCm}cm; }
         .sec-outra { page: outra; } .sec-base { page: base; }
         ${dif ? "@page :first { @top-center { content: element(cabecalho1); } @bottom-center { content: element(rodape1); } }" : ""}
-        ${CSS_FONTES.replace(/url\("\//g, `url("${location.origin}/`)}
+        ${fontes}
         body { margin: 0; } ${CSS_PAGINA} ${CSS_LISTAS} ${cssDoc}
         .cab { position: running(cabecalho); } .rod { position: running(rodape); }
         .cab1 { position: running(cabecalho1); } .rod1 { position: running(rodape1); }
@@ -1272,28 +1354,36 @@ export default function EditorTexto() {
         .sumario { border: 0; padding: 0; } .sumario a.sum-pag { color: inherit; text-decoration: none; }
         .sumario a.sum-pag::after { content: target-counter(attr(href), page); }
         .ed-texto hr { break-after: page; border: 0; margin: 0; }
-        .ed-texto span.coment { background: none !important; }
+        ${comMarcas ? `.ed-texto del.rev { display: inline; text-decoration: line-through; } .ed-texto ins.rev { text-decoration: underline; }
+          ${R.cssAutores(autoresRev)}
+          .ed-texto span.coment { background: #fff1c2; } .com-ref { font-size: 7pt; color: #9a6e1e; vertical-align: super; line-height: 0; }
+          .lista-com { margin-top: 18pt; border-top: 0.75pt solid #999; padding-top: 4pt; font: 9pt/1.3 ${fonteN}; }
+          .lista-com p { margin: 0 0 4pt; text-indent: 0; text-align: left; } .lista-com .lista-com-titulo { font-weight: bold; }` : ""}
       </style></head><body>
       ${comSecoes ? "" : areas}
       <div class="ed-texto">${corpo.innerHTML}</div>
-      </body></html>`);
+      </body></html>`;
+    return { html, comMarcas, cssOutra };
+  }
+
+  // Janela de impressão (Ctrl+P): o paged.js monta as páginas e abre o diálogo do navegador.
+  function imprimir(pdf = false) {
+    const w = window.open("", "_blank");
+    if (!w) return setMsg("Permita pop-ups para imprimir ou salvar em PDF.");
+    const { html, comMarcas, cssOutra } = montarImpressao();
+    w.document.write(html);
     w.document.close();
     const barra = `<div style="position:fixed;top:0;left:0;right:0;z-index:10;display:flex;align-items:center;gap:12px;padding:10px 16px;background:#6f5016;color:#fff;font:14px sans-serif;box-shadow:0 2px 6px rgba(0,0,0,0.3)">
       <b>${esc(atual.nome)}</b><span id="estado-pdf">Montando as páginas…</span><span style="flex:1"></span>
       <button id="btn-pdf" style="padding:6px 14px;border:0;border-radius:5px;background:#fff;color:#6f5016;font-weight:600;cursor:pointer">${pdf ? "Salvar como PDF" : "Imprimir"}</button></div>`;
     // Depois que o paged.js monta as páginas: barra no topo e janela de impressão.
     w.prontoParaImprimir = (total) => {
-      // O paged.js desenha as páginas da outra orientação, mas imprime tudo num só tamanho:
-      // as páginas "outra" ganham o próprio @page.
-      w.document.head.insertAdjacentHTML("beforeend", `<style>@page outra { size: ${largOutra}cm ${altOutra}cm; margin: 0; }
-        .pagedjs_page.pagedjs_outra_page { page: outra; width: ${largOutra}cm; height: ${altOutra}cm;
-          --pagedjs-width: ${largOutra}cm; --pagedjs-height: ${altOutra}cm; --pagedjs-width-right: ${largOutra}cm; --pagedjs-height-right: ${altOutra}cm;
-          --pagedjs-width-left: ${largOutra}cm; --pagedjs-height-left: ${altOutra}cm; }</style>`);
+      w.document.head.insertAdjacentHTML("beforeend", cssOutra);
       // Só na tela: folhas com sombra sobre fundo escuro, como na visualização de impressão do Word.
       w.document.body.insertAdjacentHTML("afterbegin", `<style>@media print { #barra-pdf { display: none !important; } }
         @media screen { html, body { background: #4a5249; } .pagedjs_pages { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 64px 0 24px; }
         .pagedjs_page { background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,0.35); } }</style><div id="barra-pdf">${barra}</div>`);
-      w.document.getElementById("estado-pdf").textContent = `${total} página${total === 1 ? "" : "s"}${pdf ? ' — na janela de impressão escolha Destino: "Salvar como PDF"' : ""}`;
+      w.document.getElementById("estado-pdf").textContent = `${total} página${total === 1 ? "" : "s"}${comMarcas ? " · com marcações de revisão" : ""}${pdf ? ' — na janela de impressão escolha Destino: "Salvar como PDF"' : ""}`;
       w.document.getElementById("btn-pdf").onclick = () => w.print();
       w.focus();
       if (!w.semDialogo) w.print();
@@ -1314,6 +1404,41 @@ export default function EditorTexto() {
     };
     pg.onerror = () => w.document.body.insertAdjacentHTML("afterbegin", '<p style="color:#fff;font:14px sans-serif;padding:16px">Não foi possível carregar o montador de páginas.</p>');
     w.document.head.appendChild(pg);
+  }
+
+  // Exportar PDF: o servidor gera o arquivo (Chromium) e ele é baixado direto. A página vai
+  // completa, com o montador de páginas e as fontes embutidos (o servidor não acessa a rede).
+  const [gerandoPdf, setGerandoPdf] = useState(false);
+  async function exportarPdf() {
+    if (gerandoPdf) return;
+    setGerandoPdf(true);
+    setMsg("Gerando o PDF…");
+    try {
+      const [polyfill, fontes] = await Promise.all([recursoTexto(pagedUrl), fontesEmbutidas()]);
+      const montada = montarImpressao("/*FONTES*/");
+      const { cssOutra } = montada;
+      const extras = await fontesSubstitutas(montada.html);
+      const html = montada.html.replace("/*FONTES*/", () => fontes + extras);
+      const scripts = `<script>window.PagedConfig = { auto: false };</script><script>${polyfill.replace(/<\/script/gi, "<\\/script")}</script>
+        <script>(async () => { try { await document.fonts.ready; const f = await PagedPolyfill.preview();
+          document.head.insertAdjacentHTML("beforeend", ${JSON.stringify(cssOutra)}); window.__paginas = f.total; window.__pdfPronto = true;
+        } catch (e) { window.__pdfErro = String((e && e.message) || e); } })();</script>`;
+      // Função no replace: o texto do paged.js tem "$&" e afins, que o replace interpretaria.
+      const pagina = html.replace("</body></html>", () => `${scripts}</body></html>`);
+      // A Vercel aceita até 4,5 MB por envio (documentos com muitas imagens passam disso).
+      if (pagina.length > 4.3e6) throw new Error("o documento tem imagens demais para gerar no servidor");
+      const r = await fetch("/api/pdf", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ html: pagina }) });
+      if (!r.ok || !/pdf/.test(r.headers.get("content-type") || "")) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.error || (r.status === 404 ? "o servidor de PDF não está disponível aqui" : `erro ${r.status}`));
+      }
+      baixar(await r.blob(), `${(atual.nome || "documento").replace(/[\\/:*?"<>|]/g, "-")}.pdf`);
+      setMsg("PDF baixado.");
+    } catch (e) {
+      setMsg(`Não foi possível gerar o PDF direto (${e.message}). Use Arquivo › Imprimir (Ctrl+P) e escolha "Salvar como PDF".`);
+    } finally {
+      setGerandoPdf(false);
+    }
   }
 
   // ----- localizar e substituir -----
@@ -1439,15 +1564,15 @@ export default function EditorTexto() {
     // Atalhos do Word (inglês) para alinhamento, quebra de página e tamanho da fonte.
     if (noTexto && !e.altKey) {
       const acao = {
-        e: () => cmd("justifyCenter"), j: () => cmd("justifyFull"), r: () => cmd("justifyRight"),
+        e: () => cmd("justifyCenter"), j: () => cmd("justifyFull"), r: () => cmd("justifyRight"), l: () => cmd("justifyLeft"),
         enter: () => cmd("insertHTML", "<hr><p><br></p>"),
         "]": () => tamanhoRelativo(1), "[": () => tamanhoRelativo(-1), ">": () => tamanhoRelativo(1), "<": () => tamanhoRelativo(-1),
       }[e.shiftKey && (k === "." || k === ",") ? (k === "." ? ">" : "<") : k];
-      if (acao && !(e.shiftKey && /^[ejr]$/.test(k))) { e.preventDefault(); return acao(); }
+      if (acao && !(e.shiftKey && /^[ejrl]$/.test(k))) { e.preventDefault(); return acao(); }
     }
     if (k === "s") { e.preventDefault(); salvarDocx(e.shiftKey); }
     if (k === "p") { e.preventDefault(); imprimir(); }
-    if (k === "l" || k === "f") { e.preventDefault(); abrirBusca(false); }
+    if (k === "f") { e.preventDefault(); abrirBusca(false); }
     if (k === "h") { e.preventDefault(); abrirBusca(true); }
     if (k === "z" && !e.shiftKey && atual.controlar && editor.current?.contains(e.target)) { e.preventDefault(); desfazerControle(); }
   }
@@ -1502,7 +1627,7 @@ export default function EditorTexto() {
             <Btn grande icone="🗂" rotulo="Salvar como" onClick={() => salvarDocx(true)} title="Salvar uma cópia em outro arquivo (Ctrl+Shift+S)" />
           </Grupo>
           <Grupo titulo="Imprimir">
-            <Btn grande icone="📄" rotulo="Exportar PDF" onClick={() => imprimir(true)} title="Gera o PDF com as páginas como no Word (cabeçalho, rodapé, notas e números de página)" />
+            <Btn grande icone="📄" rotulo={gerandoPdf ? "Gerando…" : "Exportar PDF"} onClick={exportarPdf} title="Gera e baixa o PDF com as páginas como no Word (cabeçalho, rodapé, notas e números de página)" />
             <Btn grande icone="🖨" rotulo="Imprimir" onClick={() => imprimir()} title="Ctrl+P" />
           </Grupo>
           <Grupo titulo="Gerenciar">
@@ -1572,7 +1697,7 @@ export default function EditorTexto() {
                 </select>
               </div>
               <div style={sLinha}>
-                <Btn icone="⯇≡" onClick={() => cmd("justifyLeft")} title="Alinhar à esquerda (Ctrl+L aqui abre o Localizar)" />
+                <Btn icone="⯇≡" onClick={() => cmd("justifyLeft")} title="Alinhar à esquerda (Ctrl+L)" />
                 <Btn icone="≡" onClick={() => cmd("justifyCenter")} title="Centralizar (Ctrl+E)" />
                 <Btn icone="≡⯈" onClick={() => cmd("justifyRight")} title="Alinhar à direita (Ctrl+R)" />
                 <Btn icone="☰" onClick={() => cmd("justifyFull")} title="Justificar (Ctrl+J)" />
@@ -1606,7 +1731,7 @@ export default function EditorTexto() {
           </Grupo>
           <Grupo titulo="Edição">
             <div style={sColuna}>
-              <Btn icone="🔍" rotulo="Localizar" onClick={() => abrirBusca(false)} title="Ctrl+L" />
+              <Btn icone="🔍" rotulo="Localizar" onClick={() => abrirBusca(false)} title="Ctrl+F" />
               <Btn icone="⇄" rotulo="Substituir" onClick={() => abrirBusca(true)} title="Ctrl+H" />
             </div>
           </Grupo>
