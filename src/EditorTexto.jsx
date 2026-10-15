@@ -57,7 +57,94 @@ const CSS_FONTES = [["Arial Narrow", "ArialNarrow"], ["Arial Nova Cond", "ArialN
 })).join("\n");
 function local(n) { return `local("${n}")`; }
 
-const sBarra = { display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center", padding: 8, background: "#f4f1ea", border: "1px solid rgba(0,0,0,0.12)", borderRadius: "10px 10px 0 0", position: "sticky", top: 0, zIndex: 5 };
+const FONTE_UI = "'Segoe UI', system-ui, -apple-system, sans-serif";
+const COR_TITULO = "#6f5016"; // dourado escuro do app
+const COR_ABAS = "#ece6d8";
+const COR_FAIXA = "#f8f5ee";
+const COR_STATUS = "#3a4339";
+const COR_FUNDO_ESCURO = "#4a5249"; // em volta da página: cansa menos a vista
+const ABAS = [["arquivo", "Arquivo"], ["inicio", "Página Inicial"], ["inserir", "Inserir"], ["layout", "Layout"], ["referencias", "Referências"], ["revisao", "Revisão"], ["exibir", "Exibir"]];
+const SIMBOLOS = ["§", "º", "ª", "–", "—", "…", "“", "”", "«", "»", "©", "®", "™", "°", "½", "€", "•", "¶"];
+const sRapido = { background: "transparent", border: 0, color: "#fff", fontSize: 15, cursor: "pointer", padding: "2px 6px", borderRadius: 4 };
+const sColuna = { display: "flex", flexDirection: "column", gap: 3, justifyContent: "center" };
+const sLinha = { display: "flex", gap: 2, alignItems: "center" };
+const sCor = { display: "inline-flex", alignItems: "center", gap: 2, height: 26, padding: "0 5px", border: "1px solid transparent", borderRadius: 3, cursor: "pointer", fontSize: 13, fontWeight: 600 };
+const sInputCor = { width: 16, height: 16, border: 0, padding: 0, background: "none", cursor: "pointer" };
+const sRotulo = { fontSize: 12, color: "#555", width: 92 };
+const sZoomBt = { background: "none", border: "1px solid rgba(255,255,255,0.25)", color: "inherit", borderRadius: 3, width: 22, height: 20, cursor: "pointer", fontSize: 12, padding: 0 };
+
+// Grupo da faixa de opções, com a legenda embaixo (como no Word).
+function Grupo({ titulo, children }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", borderRight: "1px solid #ddd6c6", padding: "0 8px", margin: "0 0 2px" }}>
+      <div style={{ display: "flex", gap: 4, alignItems: "flex-start", flex: 1 }}>{children}</div>
+      <div style={{ fontSize: 11, color: "#7a7468", textAlign: "center", paddingTop: 3, whiteSpace: "nowrap" }}>{titulo}</div>
+    </div>
+  );
+}
+
+// Botão da faixa: grande (ícone em cima, texto embaixo) ou pequeno (ícone + texto na linha).
+function Btn({ icone, rotulo, grande, ativo, onClick, title }) {
+  const [sobre, setSobre] = useState(false);
+  const fundo = ativo ? "#f0e2c2" : sobre ? "#efe8d8" : "transparent";
+  const estilo = grande
+    ? { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", gap: 2, minWidth: 54, maxWidth: 84, height: 66, padding: "4px 4px", fontSize: 12, lineHeight: 1.15 }
+    : { display: "flex", alignItems: "center", gap: 5, height: 26, minWidth: 26, padding: "0 6px", fontSize: 13 };
+  return (
+    <button onClick={onClick} title={title || (typeof rotulo === "string" ? rotulo : undefined)} onMouseEnter={() => setSobre(true)} onMouseLeave={() => setSobre(false)}
+      style={{ ...estilo, background: fundo, border: `1px solid ${ativo ? "#d8bf86" : sobre ? "#e2d8c2" : "transparent"}`, borderRadius: 3, cursor: "pointer", color: "#2a2a2a", fontFamily: FONTE_UI, justifyContent: grande ? "flex-start" : "center", textAlign: "center" }}>
+      <span style={{ fontSize: grande ? 22 : 14, lineHeight: 1, color: ativo ? GOLD : "#3a3a3a" }}>{icone}</span>
+      {rotulo && <span style={{ whiteSpace: grande ? "normal" : "nowrap" }}>{rotulo}</span>}
+    </button>
+  );
+}
+
+// Botão com menu suspenso.
+function Menu({ icone, rotulo, grande, title, itens }) {
+  const [aberto, setAberto] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!aberto) return;
+    const fora = (e) => { if (!ref.current?.contains(e.target)) setAberto(false); };
+    window.addEventListener("mousedown", fora);
+    return () => window.removeEventListener("mousedown", fora);
+  }, [aberto]);
+  return (
+    <span ref={ref} style={{ position: "relative" }}>
+      <Btn grande={grande} icone={icone} rotulo={rotulo ? `${rotulo} ▾` : "▾"} ativo={aberto} title={title} onClick={() => setAberto((x) => !x)} />
+      {aberto && (
+        <div style={{ position: "absolute", top: grande ? 68 : 28, left: 0, zIndex: 30, background: "#fff", border: "1px solid #d0c8b6", borderRadius: 4, boxShadow: "0 4px 16px rgba(0,0,0,0.18)", padding: "4px 0", minWidth: 220 }}>
+          {itens.map(([t, f]) => (
+            <button key={t} onMouseDown={(e) => e.preventDefault()} onClick={() => { setAberto(false); f(); }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "#f4eee2"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "none"; }}
+              style={{ display: "block", width: "100%", textAlign: "left", border: 0, background: "none", padding: "6px 12px", fontSize: 13, cursor: "pointer", fontFamily: FONTE_UI, whiteSpace: "nowrap" }}>{t}</button>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
+function ContagemPalavras({ editor, paginas, fechar }) {
+  const texto = (editor?.innerText || "").replace(/\u200b/g, "");
+  const palavras = (texto.match(/\S+/g) || []).length;
+  const comEsp = texto.replace(/\n/g, "").length;
+  const semEsp = texto.replace(/\s/g, "").length;
+  const paragrafos = [...(editor?.querySelectorAll("p,h1,h2,h3,li,blockquote") || [])].filter((p) => p.textContent.trim()).length;
+  const linha = (a, b) => <tr><td style={{ padding: "4px 16px 4px 0" }}>{a}</td><td style={{ textAlign: "right", fontWeight: 600 }}>{b.toLocaleString("pt-BR")}</td></tr>;
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={fechar}>
+      <div style={{ background: "#fff", borderRadius: 8, padding: 18, minWidth: 280, fontFamily: FONTE_UI, fontSize: 13, boxShadow: "0 8px 30px rgba(0,0,0,0.3)" }} onMouseDown={(e) => e.stopPropagation()}>
+        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 10 }}>Contar palavras</div>
+        <table><tbody>
+          {linha("Páginas (estimativa)", paginas)}{linha("Palavras", palavras)}{linha("Caracteres (sem espaços)", semEsp)}{linha("Caracteres (com espaços)", comEsp)}{linha("Parágrafos", paragrafos)}
+        </tbody></table>
+        <div style={{ textAlign: "right", marginTop: 12 }}><button onClick={fechar} style={{ padding: "4px 16px", border: "1px solid #ccc", borderRadius: 4, background: "#fff", cursor: "pointer" }}>Fechar</button></div>
+      </div>
+    </div>
+  );
+}
+
 const sBotao = (ativo) => ({ minWidth: 32, height: 30, padding: "0 8px", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6, background: ativo ? "rgba(154,110,30,0.2)" : "#fff", cursor: "pointer", fontSize: 13, fontFamily: "sans-serif", color: "#2a2a2a", whiteSpace: "nowrap" });
 const sSelect = { height: 30, border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6, background: "#fff", fontSize: 13, fontFamily: "sans-serif", padding: "0 4px" };
 const sSep = { width: 1, height: 22, background: "rgba(0,0,0,0.15)", margin: "0 4px" };
@@ -113,11 +200,18 @@ export default function EditorTexto() {
   const selCelulas = useRef(null); // { tabela, inicio, ret }
   const [imgSel, setImgSel] = useState(null); // imagem selecionada (elemento)
   const [painelEstilos, setPainelEstilos] = useState(false);
+  const [abaFaixa, setAbaFaixa] = useState("inicio");
+  const [zoom, setZoom] = useState(100);
+  const zoomRef = useRef(1);
+  const [contagem, setContagem] = useState(false);
+  const [mostrarQuebras, setMostrarQuebras] = useState(true);
+  const [mostrarGrade, setMostrarGrade] = useState(true);
+  const [fundoEscuro, setFundoEscuro] = useState(() => ler("editorTexto.fundoEscuro", true));
+  const areaRef = useRef(null);
   const [autor, setAutor] = useState(() => ler("editorTexto.autor", ""));
   const [mostrarMarcas, setMostrarMarcas] = useState(true);
   const [comAtivo, setComAtivo] = useState(null); // comentário destacado
   const [comNovo, setComNovo] = useState(null); // comentário recém-criado (abre para escrever)
-  const [menuRevisao, setMenuRevisao] = useState(false);
   const pagRef = useRef(null);
   const desfazerRev = useRef([]); // desfazer próprio enquanto o controle de alterações está ligado
   const [, setTick] = useState(0); // redesenha a moldura da imagem
@@ -132,6 +226,7 @@ export default function EditorTexto() {
   const atual = docs.find((x) => x.id === atualId) || docs[0];
   const pagina = atual.pagina || PAGINA_PADRAO;
   const estilos = estilosDe(atual);
+  zoomRef.current = zoom / 100;
   const cssDoc = cssEstilos(estilos);
   // Notas de rodapé na ordem em que aparecem no texto.
   const autoresRev = [...new Set([...atual.html.matchAll(/data-autor="([^"]*)"/g)].map((x) => x[1]))];
@@ -188,6 +283,8 @@ export default function EditorTexto() {
         italic: document.queryCommandState("italic"),
         underline: document.queryCommandState("underline"),
         strikeThrough: document.queryCommandState("strikeThrough"),
+        subscript: document.queryCommandState("subscript"),
+        superscript: document.queryCommandState("superscript"),
         insertUnorderedList: document.queryCommandState("insertUnorderedList"),
         insertOrderedList: document.queryCommandState("insertOrderedList"),
         bloco: (document.queryCommandValue("formatBlock") || "p").toLowerCase(),
@@ -196,7 +293,7 @@ export default function EditorTexto() {
       if (s.rangeCount) {
         const r = s.getRangeAt(0).getBoundingClientRect();
         const topo = editor.current.getBoundingClientRect().top;
-        const y = (r.top || r.bottom) - topo;
+        const y = ((r.top || r.bottom) - topo) / zoomRef.current;
         if (r.top || r.bottom) setPagAtual(quebrasRef.current.filter((q) => q <= y).length + 1);
       }
     };
@@ -279,6 +376,63 @@ export default function EditorTexto() {
     });
     setMsg("");
     salvarHtml();
+  }
+
+  // A+ / A-: próximo tamanho da lista a partir do tamanho atual do trecho.
+  function tamanhoRelativo(dir) {
+    const s = document.getSelection();
+    if (!s.rangeCount || s.isCollapsed) return setMsg("Selecione o texto para mudar o tamanho.");
+    const el = s.anchorNode.nodeType === 3 ? s.anchorNode.parentElement : s.anchorNode;
+    const atualPt = Math.round(parseFloat(getComputedStyle(el).fontSize) * 0.75 * 2) / 2;
+    const prox = dir > 0 ? TAMANHOS.find((t) => t > atualPt) : [...TAMANHOS].reverse().find((t) => t < atualPt);
+    if (prox) aplicarTamanho(prox);
+  }
+
+  // Maiúsculas/minúsculas no trecho selecionado, mantendo a formatação.
+  function trocarCaixa(modo) {
+    const s = document.getSelection();
+    if (!s.rangeCount || s.isCollapsed || !editor.current.contains(s.anchorNode)) return setMsg("Selecione o texto.");
+    const r = s.getRangeAt(0);
+    const segs = R.textosNoIntervalo(r);
+    let inicioFrase = true;
+    for (const t of segs) {
+      let txt = t.data.toLocaleLowerCase("pt-BR");
+      if (modo === "mai") txt = t.data.toLocaleUpperCase("pt-BR");
+      else if (modo === "palavras") txt = txt.replace(/(^|[\s(“"'«-])(\p{L})/gu, (_, a, b) => a + b.toLocaleUpperCase("pt-BR"));
+      else if (modo === "frase") txt = txt.replace(/\p{L}/gu, (ch) => { const out = inicioFrase ? ch.toLocaleUpperCase("pt-BR") : ch; inicioFrase = false; return out; }).replace(/([.!?]\s+)(\p{L})/gu, (_, a, b) => a + b.toLocaleUpperCase("pt-BR"));
+      t.data = txt;
+    }
+    if (segs.length) {
+      const nr = document.createRange();
+      nr.setStartBefore(segs[0]);
+      nr.setEndAfter(segs[segs.length - 1]);
+      s.removeAllRanges();
+      s.addRange(nr);
+    }
+    salvarHtml();
+  }
+
+  function inserirSimbolo(ch) {
+    editor.current.focus();
+    if (atual.controlar && garantirAutor()) { R.inserirComControle(ch, autor || garantirAutor()); salvarHtml(); }
+    else cmd("insertText", ch);
+  }
+
+  async function colar() {
+    try {
+      const t = await navigator.clipboard.readText();
+      editor.current.focus();
+      if (atual.controlar && autor) { R.inserirComControle(t.replace(/\r?\n/g, " "), autor); salvarHtml(); }
+      else cmd("insertText", t);
+    } catch {
+      setMsg("O navegador não deixou ler a área de transferência: use Ctrl+V.");
+    }
+  }
+
+  function larguraDaPagina() {
+    const disp = (areaRef.current?.clientWidth || 900) - 40;
+    const pag = pagRef.current?.getBoundingClientRect().width / zoomRef.current || 800;
+    setZoom(Math.max(50, Math.min(200, Math.floor((disp / pag) * 10) * 10)));
   }
 
   // Parágrafos tocados pela seleção (para espaçamento e recuo).
@@ -379,7 +533,6 @@ export default function EditorTexto() {
   }
 
   function revisarTodas(aceitarIt) {
-    setMenuRevisao(false);
     const lista = [...editor.current.querySelectorAll("ins.rev, del.rev")];
     if (!lista.length) return setMsg("Não há alterações marcadas.");
     if (!confirm(`${aceitarIt ? "Aceitar" : "Rejeitar"} todas as ${lista.length} alterações?`)) return;
@@ -518,13 +671,14 @@ export default function EditorTexto() {
     e.preventDefault();
     e.stopPropagation();
     const img = imgSel;
-    const w0 = img.getBoundingClientRect().width, h0 = img.getBoundingClientRect().height;
+    const z = zoomRef.current;
+    const w0 = img.getBoundingClientRect().width / z, h0 = img.getBoundingClientRect().height / z;
     const proporcao = h0 / w0;
-    const max = editor.current.getBoundingClientRect().width;
+    const max = editor.current.getBoundingClientRect().width / z;
     const x0 = e.clientX;
     const sinal = canto.includes("d") ? 1 : -1; // alças da direita crescem para a direita
     const mover = (ev) => {
-      const w = Math.max(24, Math.min(max, w0 + sinal * (ev.clientX - x0)));
+      const w = Math.max(24, Math.min(max, w0 + (sinal * (ev.clientX - x0)) / z));
       img.setAttribute("width", Math.round(w));
       img.setAttribute("height", Math.round(w * proporcao));
       img.style.width = img.style.height = "";
@@ -548,7 +702,7 @@ export default function EditorTexto() {
 
   function tamanhoOriginal() {
     const img = imgSel;
-    const max = editor.current.getBoundingClientRect().width;
+    const max = editor.current.getBoundingClientRect().width / zoomRef.current;
     const w = Math.min(img.naturalWidth, max);
     img.setAttribute("width", Math.round(w));
     img.setAttribute("height", Math.round((w * img.naturalHeight) / img.naturalWidth));
@@ -932,135 +1086,295 @@ export default function EditorTexto() {
   const textoNumero = { direita: "1", centro: "1", xdey: `Página 1 de ${totalPag}` }[atual.numPag];
 
   return (
-    <div style={{ fontFamily: "sans-serif" }} onKeyDown={teclas}>
-      <style>{CSS_FONTES + CSS_PAGINA + cssDoc + CSS_TELA + cssRevisao}</style>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
-        <select value={atualId} onChange={(e) => trocar(e.target.value)} style={{ ...sSelect, maxWidth: 220 }} title="Documentos salvos neste navegador">
-          {docs.map((x) => <option key={x.id} value={x.id}>{x.nome || "(sem nome)"}</option>)}
-        </select>
-        <input value={atual.nome} onChange={(e) => renomear(e.target.value)} style={{ ...sSelect, flex: "1 1 180px", padding: "0 8px" }} placeholder="Nome do documento" />
-        <button style={sBotao()} onClick={() => criar()}>＋ Novo</button>
-        <button style={sBotao()} onClick={abrir} title="Abrir .docx, .txt ou .html do computador">📂 Abrir</button>
-        <button style={sBotao()} onClick={() => salvarDocx(false)} title={arquivoAtual ? `Gravar no arquivo "${arquivoAtual}" (Ctrl+S)` : "Salvar em Word (.docx) (Ctrl+S)"}>💾 Salvar</button>
-        <button style={sBotao()} onClick={() => salvarDocx(true)} title="Salvar uma cópia em outro arquivo (Ctrl+Shift+S)">Salvar como…</button>
-        <button style={sBotao()} onClick={imprimir}>🖨️ PDF / Imprimir</button>
-        <button style={sBotao()} onClick={excluir} title="Excluir documento">🗑️</button>
-        <input ref={arquivo} type="file" accept=".docx,.txt,.md,.html,.htm" onChange={abrirArquivo} style={{ display: "none" }} />
-        <input ref={arquivoImg} type="file" accept="image/png,image/jpeg,image/gif,image/bmp" onChange={inserirImagem} style={{ display: "none" }} />
-      </div>
-      <p style={{ fontSize: 12, color: "#666", margin: "-4px 0 8px" }}>
-        {arquivoAtual
-          ? <>📄 Arquivo: <b>{arquivoAtual}</b> · {atual.alterado ? <span style={{ color: "#b0471b" }}>● alterações não salvas (Ctrl+S grava no arquivo)</span> : <span style={{ color: "#4a7a4a" }}>✓ salvo</span>}</>
-          : suportaArquivoLocal ? "Documento ainda não salvo em arquivo: \"Salvar\" pergunta onde guardar e, depois disso, grava sempre no mesmo arquivo."
-          : "Este navegador não permite salvar no mesmo arquivo: \"Salvar\" baixa um .docx novo. Para gravar no próprio arquivo, use Chrome ou Edge no computador."}
-      </p>
-      {msg && <p style={{ fontSize: 13, color: GOLD, margin: "0 0 8px" }}>{msg}</p>}
+    <div style={{ fontFamily: FONTE_UI, borderRadius: 10, boxShadow: "0 2px 14px rgba(0,0,0,0.18)" }} onKeyDown={teclas}>
+      <style>{CSS_FONTES + CSS_PAGINA + cssDoc + CSS_TELA + cssRevisao + (mostrarGrade ? "" : ".ed-texto td, .ed-texto th { outline: none; }")}</style>
+      <input ref={arquivo} type="file" accept=".docx,.txt,.md,.html,.htm" onChange={abrirArquivo} style={{ display: "none" }} />
+      <input ref={arquivoImg} type="file" accept="image/png,image/jpeg,image/gif,image/bmp" onChange={inserirImagem} style={{ display: "none" }} />
 
-      <div style={sBarra} onMouseDown={(e) => { if (e.target.tagName === "BUTTON") e.preventDefault(); }}>
-        <button style={sBotao()} onClick={() => cmd("undo")} title="Desfazer (Ctrl+Z)">↶</button>
-        <button style={sBotao()} onClick={() => cmd("redo")} title="Refazer (Ctrl+Y)">↷</button>
-        <span style={sSep} />
-        <select style={sSelect} value={["h1", "h2", "h3", "blockquote"].includes(estado.bloco) ? estado.bloco : "p"} onChange={(e) => cmd("formatBlock", e.target.value)} title="Estilo">
-          <option value="p">Normal</option>
-          <option value="h1">Título 1</option>
-          <option value="h2">Título 2</option>
-          <option value="h3">Título 3</option>
-          <option value="blockquote">Citação</option>
+      {/* Barra de título (como a do Word, nas cores do app) */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", background: COR_TITULO, color: "#fff", padding: "6px 10px", borderRadius: "10px 10px 0 0" }}
+        onMouseDown={(e) => { if (e.target.closest("button")) e.preventDefault(); }}>
+        <button style={sRapido} onClick={() => salvarDocx(false)} title={arquivoAtual ? `Salvar em "${arquivoAtual}" (Ctrl+S)` : "Salvar (Ctrl+S)"}>💾</button>
+        <button style={sRapido} onClick={() => (atual.controlar ? desfazerControle() : cmd("undo"))} title="Desfazer (Ctrl+Z)">↶</button>
+        <button style={sRapido} onClick={() => cmd("redo")} title="Refazer (Ctrl+Y)">↷</button>
+        <span style={{ width: 1, height: 18, background: "rgba(255,255,255,0.3)" }} />
+        <input value={atual.nome} onChange={(e) => renomear(e.target.value)} placeholder="Nome do documento" title="Nome do documento"
+          style={{ flex: "1 1 200px", minWidth: 140, background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.25)", borderRadius: 4, color: "#fff", padding: "4px 8px", fontSize: 13, textAlign: "center", fontFamily: FONTE_UI }} />
+        <span style={{ fontSize: 12, opacity: 0.9, whiteSpace: "nowrap", fontFamily: FONTE_UI }}>
+          {arquivoAtual ? <>{arquivoAtual} · {atual.alterado ? "● não salvo" : "✓ salvo"}</> : suportaArquivoLocal ? "não salvo em arquivo" : "salva baixando cópia"}
+        </span>
+        <select value={atualId} onChange={(e) => trocar(e.target.value)} title="Documentos abertos neste navegador"
+          style={{ maxWidth: 180, background: "rgba(255,255,255,0.12)", color: "#fff", border: "1px solid rgba(255,255,255,0.25)", borderRadius: 4, fontSize: 12, padding: "3px 4px" }}>
+          {docs.map((x) => <option key={x.id} value={x.id} style={{ color: "#222" }}>{x.nome || "(sem nome)"}</option>)}
         </select>
-        <select style={{ ...sSelect, width: 120 }} defaultValue="" onChange={(e) => { cmd("fontName", e.target.value); e.target.value = ""; }} title="Fonte">
-          <option value="" disabled>Fonte</option>
-          {FONTES.map((f) => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
-        </select>
-        <select style={sSelect} defaultValue="" onChange={(e) => { aplicarTamanho(e.target.value); e.target.value = ""; }} title="Tamanho da fonte (pt)">
-          <option value="" disabled>Tam.</option>
-          {TAMANHOS.map((pt) => <option key={pt} value={pt}>{String(pt).replace(".", ",")}</option>)}
-        </select>
-        <span style={sSep} />
-        <button style={{ ...sBotao(estado.bold), fontWeight: "bold" }} onClick={() => cmd("bold")} title="Negrito (Ctrl+B)">N</button>
-        <button style={{ ...sBotao(estado.italic), fontStyle: "italic" }} onClick={() => cmd("italic")} title="Itálico (Ctrl+I)">I</button>
-        <button style={{ ...sBotao(estado.underline), textDecoration: "underline" }} onClick={() => cmd("underline")} title="Sublinhado (Ctrl+U)">S</button>
-        <button style={{ ...sBotao(estado.strikeThrough), textDecoration: "line-through" }} onClick={() => cmd("strikeThrough")} title="Tachado">ab</button>
-        <label style={{ ...sBotao(), display: "inline-flex", alignItems: "center", gap: 2 }} title="Cor do texto">
-          A<input type="color" onChange={(e) => cmd("foreColor", e.target.value)} style={{ width: 18, height: 18, border: 0, padding: 0, background: "none" }} />
-        </label>
-        <label style={{ ...sBotao(), display: "inline-flex", alignItems: "center", gap: 2 }} title="Realce">
-          🖍<input type="color" defaultValue="#ffff00" onChange={(e) => cmd("hiliteColor", e.target.value)} style={{ width: 18, height: 18, border: 0, padding: 0, background: "none" }} />
-        </label>
-        <span style={sSep} />
-        <button style={sBotao()} onClick={() => cmd("justifyLeft")} title="Alinhar à esquerda">⯇</button>
-        <button style={sBotao()} onClick={() => cmd("justifyCenter")} title="Centralizar">≡</button>
-        <button style={sBotao()} onClick={() => cmd("justifyRight")} title="Alinhar à direita">⯈</button>
-        <button style={sBotao()} onClick={() => cmd("justifyFull")} title="Justificar">☰</button>
-        <span style={sSep} />
-        <select style={{ ...sSelect, width: 112 }} value="" onChange={(e) => estiloParagrafo("lineHeight", e.target.value)} title="Espaçamento entre linhas">
-          <option value="" disabled>↕ Entrelinhas</option>
-          {["1", "1.15", "1.5", "2"].map((v) => <option key={v} value={v}>{v.replace(".", ",")}</option>)}
-        </select>
-        <select style={{ ...sSelect, width: 128 }} value="" onChange={(e) => estiloParagrafo("marginBottom", e.target.value)} title="Espaço depois do parágrafo">
-          <option value="" disabled>¶ Espaço depois</option>
-          {["0pt", "6pt", "12pt", "18pt"].map((v) => <option key={v} value={v}>{v.replace("pt", " pt")}</option>)}
-        </select>
-        <select style={{ ...sSelect, width: 118 }} value="" onChange={(e) => estiloParagrafo("textIndent", e.target.value)} title="Recuo da primeira linha">
-          <option value="" disabled>⇥ Recuo 1ª linha</option>
-          <option value="0cm">Nenhum</option>
-          <option value="1.25cm">1,25 cm</option>
-          <option value="2.5cm">2,5 cm</option>
-          <option value="4cm">4 cm (citação)</option>
-        </select>
-        <span style={sSep} />
-        <button style={sBotao(estado.insertUnorderedList)} onClick={() => cmd("insertUnorderedList")} title="Marcadores">• Lista</button>
-        <button style={sBotao(estado.insertOrderedList)} onClick={() => cmd("insertOrderedList")} title="Numeração">1. Lista</button>
-        <button style={sBotao()} onClick={() => cmd("outdent")} title="Diminuir recuo">⇤</button>
-        <button style={sBotao()} onClick={() => cmd("indent")} title="Aumentar recuo">⇥</button>
-        <span style={sSep} />
-        <span style={{ position: "relative" }}>
-          <button style={sBotao(!!seletorTabela)} onClick={() => setSeletorTabela((x) => (x ? null : { l: 0, c: 0 }))} title="Inserir tabela">▦ Tabela</button>
-          {seletorTabela && (
-            <div style={{ position: "absolute", top: 34, left: 0, zIndex: 20, background: "#fff", border: "1px solid #ccc", borderRadius: 6, padding: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.15)" }}
-              onMouseLeave={() => setSeletorTabela({ l: 0, c: 0 })}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(10, 16px)", gap: 2 }}>
-                {Array.from({ length: 80 }, (_, i) => {
-                  const l = Math.floor(i / 10) + 1, c = (i % 10) + 1;
-                  const marc = l <= seletorTabela.l && c <= seletorTabela.c;
-                  return <div key={i} onMouseEnter={() => setSeletorTabela({ l, c })} onMouseDown={(e) => e.preventDefault()} onClick={() => inserirTabela(l, c)}
-                    style={{ width: 16, height: 16, border: "1px solid " + (marc ? GOLD : "#ccc"), background: marc ? "rgba(154,110,30,0.25)" : "#fff", cursor: "pointer" }} />;
-                })}
+      </div>
+
+      {/* Abas da faixa de opções */}
+      <div style={{ display: "flex", gap: 2, background: COR_ABAS, padding: "0 6px", overflowX: "auto", fontFamily: FONTE_UI }}>
+        {ABAS.map(([id, rot]) => (
+          <button key={id} onMouseDown={(e) => e.preventDefault()} onClick={() => setAbaFaixa(id)}
+            style={{ border: 0, padding: "7px 14px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap", fontFamily: FONTE_UI,
+              background: id === "arquivo" ? GOLD : abaFaixa === id ? COR_FAIXA : "transparent", color: id === "arquivo" ? "#fff" : abaFaixa === id ? GOLD : "#3a3a3a",
+              fontWeight: abaFaixa === id ? 600 : 400, borderRadius: "4px 4px 0 0", borderBottom: abaFaixa === id && id !== "arquivo" ? `2px solid ${GOLD}` : "2px solid transparent" }}>{rot}</button>
+        ))}
+      </div>
+
+      {/* Faixa de opções */}
+      <div style={{ display: "flex", alignItems: "stretch", flexWrap: "wrap", background: COR_FAIXA, borderBottom: "1px solid #d8d2c4", padding: "4px 4px 0", position: "sticky", top: 0, zIndex: 5, fontFamily: FONTE_UI, minHeight: 92 }}
+        onMouseDown={(e) => { if (e.target.closest("button") || e.target.closest("[data-sem-foco]")) e.preventDefault(); }}>
+        {abaFaixa === "arquivo" && <>
+          <Grupo titulo="Documento">
+            <Btn grande icone="＋" rotulo="Novo" onClick={() => criar()} />
+            <Btn grande icone="📂" rotulo="Abrir" onClick={abrir} title="Abrir .docx, .txt ou .html do computador" />
+            <Btn grande icone="💾" rotulo="Salvar" onClick={() => salvarDocx(false)} title={arquivoAtual ? `Gravar em "${arquivoAtual}" (Ctrl+S)` : "Salvar em Word (.docx) (Ctrl+S)"} />
+            <Btn grande icone="🗂" rotulo="Salvar como" onClick={() => salvarDocx(true)} title="Salvar uma cópia em outro arquivo (Ctrl+Shift+S)" />
+          </Grupo>
+          <Grupo titulo="Imprimir">
+            <Btn grande icone="🖨" rotulo="Imprimir / PDF" onClick={imprimir} title="Ctrl+P" />
+          </Grupo>
+          <Grupo titulo="Gerenciar">
+            <Btn grande icone="🗑" rotulo="Excluir" onClick={excluir} title="Excluir este documento do navegador" />
+          </Grupo>
+          <div style={{ fontSize: 12, color: "#666", alignSelf: "center", padding: "0 12px", maxWidth: 420 }}>
+            {arquivoAtual ? <>Ligado ao arquivo <b>{arquivoAtual}</b>: Salvar grava nele mesmo.</>
+              : suportaArquivoLocal ? "Ainda não salvo em arquivo: Salvar pergunta onde guardar e, depois, grava sempre no mesmo arquivo."
+              : "Este navegador não permite salvar no mesmo arquivo: Salvar baixa um .docx novo (use Chrome ou Edge no computador)."}
+          </div>
+        </>}
+
+        {abaFaixa === "inicio" && <>
+          <Grupo titulo="Área de Transferência">
+            <Btn grande icone="📋" rotulo="Colar" onClick={colar} title="Colar como texto (Ctrl+V cola mantendo a formatação)" />
+            <div style={sColuna}>
+              <Btn icone="✂" rotulo="Recortar" onClick={() => cmd("cut")} title="Ctrl+X" />
+              <Btn icone="⧉" rotulo="Copiar" onClick={() => cmd("copy")} title="Ctrl+C" />
+            </div>
+          </Grupo>
+          <Grupo titulo="Fonte">
+            <div style={sColuna}>
+              <div style={sLinha}>
+                <select data-sem-foco style={{ ...sSelect, width: 132 }} defaultValue="" onChange={(e) => { cmd("fontName", e.target.value); e.target.value = ""; }} title="Fonte">
+                  <option value="" disabled>{estilos.normal.fonte}</option>
+                  {FONTES.map((f) => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
+                </select>
+                <select data-sem-foco style={{ ...sSelect, width: 56 }} defaultValue="" onChange={(e) => { aplicarTamanho(e.target.value); e.target.value = ""; }} title="Tamanho da fonte (pt)">
+                  <option value="" disabled>{estilos.normal.tamanho}</option>
+                  {TAMANHOS.map((pt) => <option key={pt} value={pt}>{String(pt).replace(".", ",")}</option>)}
+                </select>
+                <Btn icone="A⁺" onClick={() => tamanhoRelativo(1)} title="Aumentar fonte" />
+                <Btn icone="A⁻" onClick={() => tamanhoRelativo(-1)} title="Diminuir fonte" />
+                <Menu icone="Aa" title="Maiúsculas e minúsculas" itens={[["Primeira letra da frase maiúscula", () => trocarCaixa("frase")], ["minúsculas", () => trocarCaixa("min")], ["MAIÚSCULAS", () => trocarCaixa("mai")], ["Colocar Cada Palavra Em Maiúscula", () => trocarCaixa("palavras")]]} />
+                <Btn icone="⌫" onClick={() => cmd("removeFormat")} title="Limpar formatação" />
               </div>
-              <div style={{ fontSize: 12, textAlign: "center", marginTop: 6, color: "#555" }}>
-                {seletorTabela.l ? `${seletorTabela.l} × ${seletorTabela.c}` : "Escolha o tamanho"}{" · "}
-                <a href="#" onMouseDown={(e) => e.preventDefault()} onClick={(e) => { e.preventDefault(); inserirTabela(parseInt(prompt("Número de linhas:", "3"), 10), parseInt(prompt("Número de colunas:", "3"), 10)); }}>outro tamanho…</a>
+              <div style={sLinha}>
+                <Btn icone={<b>N</b>} ativo={estado.bold} onClick={() => cmd("bold")} title="Negrito (Ctrl+B)" />
+                <Btn icone={<i>I</i>} ativo={estado.italic} onClick={() => cmd("italic")} title="Itálico (Ctrl+I)" />
+                <Btn icone={<u>S</u>} ativo={estado.underline} onClick={() => cmd("underline")} title="Sublinhado (Ctrl+U)" />
+                <Btn icone={<s>ab</s>} ativo={estado.strikeThrough} onClick={() => cmd("strikeThrough")} title="Tachado" />
+                <Btn icone={<span>x<sub>2</sub></span>} ativo={estado.subscript} onClick={() => cmd("subscript")} title="Subscrito" />
+                <Btn icone={<span>x<sup>2</sup></span>} ativo={estado.superscript} onClick={() => cmd("superscript")} title="Sobrescrito" />
+                <label style={sCor} title="Cor da fonte">A<input type="color" onChange={(e) => cmd("foreColor", e.target.value)} style={sInputCor} /></label>
+                <label style={sCor} title="Cor do realce do texto">🖍<input type="color" defaultValue="#ffff00" onChange={(e) => cmd("hiliteColor", e.target.value)} style={sInputCor} /></label>
               </div>
             </div>
-          )}
-        </span>
-        <button style={sBotao()} onClick={() => arquivoImg.current.click()} title="Inserir imagem">🖼 Imagem</button>
-        <button style={sBotao()} onClick={inserirLink} title="Inserir link">🔗</button>
-        <button style={sBotao()} onClick={() => cmd("insertHTML", "<hr><p><br></p>")} title="Quebra de página">⤓ Quebra</button>
-        <button style={sBotao()} onClick={inserirNota} title="Inserir nota de rodapé no ponto do cursor">¹ Nota</button>
-        <button style={sBotao()} onClick={inserirSumario} title="Inserir sumário automático (usa os Títulos 1, 2 e 3)">≣ Sumário</button>
-        <button style={sBotao(painelEstilos)} onClick={() => setPainelEstilos((x) => !x)} title="Editar os estilos Normal, Títulos e Citação">Aa Estilos</button>
-        <span style={sSep} />
-        <button style={sBotao()} onClick={comentar} title="Comentar o trecho selecionado">💬 Comentar</button>
-        <button style={{ ...sBotao(atual.controlar), ...(atual.controlar ? { border: "1px solid #b0471b", color: "#b0471b" } : {}) }} onClick={alternarControle}
-          title="Controlar alterações: inclusões e exclusões ficam marcadas com o seu nome">✎ Controlar alterações{atual.controlar ? ": ligado" : ""}</button>
-        <span style={{ position: "relative" }}>
-          <button style={sBotao(menuRevisao)} onClick={() => setMenuRevisao((x) => !x)} title="Aceitar ou rejeitar alterações e mostrar/ocultar marcações">Revisão ▾</button>
-          {menuRevisao && (
-            <div style={{ position: "absolute", top: 34, right: 0, zIndex: 20, background: "#fff", border: "1px solid #ccc", borderRadius: 6, padding: 6, boxShadow: "0 4px 16px rgba(0,0,0,0.15)", display: "flex", flexDirection: "column", gap: 4, minWidth: 230 }}>
-              <button style={sBotao()} onClick={() => revisarTodas(true)}>✓ Aceitar todas as alterações</button>
-              <button style={sBotao()} onClick={() => revisarTodas(false)}>✕ Rejeitar todas as alterações</button>
-              <label style={{ fontSize: 13, display: "flex", gap: 6, alignItems: "center", padding: "4px 2px" }}>
+          </Grupo>
+          <Grupo titulo="Parágrafo">
+            <div style={sColuna}>
+              <div style={sLinha}>
+                <Btn icone="•≡" ativo={estado.insertUnorderedList} onClick={() => cmd("insertUnorderedList")} title="Marcadores" />
+                <Btn icone="1≡" ativo={estado.insertOrderedList} onClick={() => cmd("insertOrderedList")} title="Numeração" />
+                <Btn icone="⇤" onClick={() => cmd("outdent")} title="Diminuir recuo" />
+                <Btn icone="⇥" onClick={() => cmd("indent")} title="Aumentar recuo" />
+                <select data-sem-foco style={{ ...sSelect, width: 82 }} value="" onChange={(e) => estiloParagrafo("textIndent", e.target.value)} title="Recuo da primeira linha">
+                  <option value="" disabled>Recuo ⇥</option>
+                  <option value="0cm">Nenhum</option><option value="1.25cm">1,25 cm</option><option value="2.5cm">2,5 cm</option><option value="4cm">4 cm</option>
+                </select>
+              </div>
+              <div style={sLinha}>
+                <Btn icone="⯇≡" onClick={() => cmd("justifyLeft")} title="Alinhar à esquerda (Ctrl+L no Word)" />
+                <Btn icone="≡" onClick={() => cmd("justifyCenter")} title="Centralizar" />
+                <Btn icone="≡⯈" onClick={() => cmd("justifyRight")} title="Alinhar à direita" />
+                <Btn icone="☰" onClick={() => cmd("justifyFull")} title="Justificar" />
+                <select data-sem-foco style={{ ...sSelect, width: 62 }} value="" onChange={(e) => estiloParagrafo("lineHeight", e.target.value)} title="Espaçamento entre linhas">
+                  <option value="" disabled>↕</option>
+                  {["1", "1.15", "1.5", "2"].map((v) => <option key={v} value={v}>{v.replace(".", ",")}</option>)}
+                </select>
+                <select data-sem-foco style={{ ...sSelect, width: 82 }} value="" onChange={(e) => estiloParagrafo("marginBottom", e.target.value)} title="Espaço depois do parágrafo">
+                  <option value="" disabled>¶ depois</option>
+                  {["0pt", "6pt", "12pt", "18pt"].map((v) => <option key={v} value={v}>{v.replace("pt", " pt")}</option>)}
+                </select>
+              </div>
+            </div>
+          </Grupo>
+          <Grupo titulo="Estilos">
+            <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
+              {[["p", "Normal", estilos.normal], ["h1", "Título 1", estilos.h1], ["h2", "Título 2", estilos.h2], ["h3", "Título 3", estilos.h3], ["blockquote", "Citação", estilos.citacao]].map(([tag, nome, e]) => {
+                const ativo = (["h1", "h2", "h3", "blockquote"].includes(estado.bloco) ? estado.bloco : "p") === tag;
+                return (
+                  <button key={tag} onClick={() => cmd("formatBlock", tag)} title={`Estilo ${nome}`}
+                    style={{ width: 56, height: 54, border: `1px solid ${ativo ? GOLD : "#ddd6c6"}`, background: ativo ? "#f3ead6" : "#fff", borderRadius: 3, cursor: "pointer", padding: 3, overflow: "hidden" }}>
+                    <div style={{ fontFamily: `'${e.fonte}'`, fontWeight: e.negrito ? "bold" : "normal", fontStyle: e.italico ? "italic" : "normal", fontSize: Math.min(15, e.tamanho + 1), color: e.cor || "#222", lineHeight: 1.1 }}>AaBb</div>
+                    <div style={{ fontSize: 10, color: "#555", marginTop: 4 }}>{nome}</div>
+                  </button>
+                );
+              })}
+              <Btn grande icone="⚙" rotulo="Modificar" ativo={painelEstilos} onClick={() => setPainelEstilos((x) => !x)} title="Editar os estilos Normal, Títulos e Citação" />
+            </div>
+          </Grupo>
+          <Grupo titulo="Edição">
+            <div style={sColuna}>
+              <Btn icone="🔍" rotulo="Localizar" onClick={() => abrirBusca(false)} title="Ctrl+L" />
+              <Btn icone="⇄" rotulo="Substituir" onClick={() => abrirBusca(true)} title="Ctrl+H" />
+            </div>
+          </Grupo>
+        </>}
+
+        {abaFaixa === "inserir" && <>
+          <Grupo titulo="Páginas">
+            <Btn grande icone="⤓" rotulo="Quebra de Página" onClick={() => cmd("insertHTML", "<hr><p><br></p>")} />
+          </Grupo>
+          <Grupo titulo="Tabelas">
+            <span style={{ position: "relative" }}>
+              <Btn grande icone="▦" rotulo="Tabela ▾" ativo={!!seletorTabela} onClick={() => setSeletorTabela((x) => (x ? null : { l: 0, c: 0 }))} />
+              {seletorTabela && (
+                <div style={{ position: "absolute", top: 64, left: 0, zIndex: 20, background: "#fff", border: "1px solid #ccc", borderRadius: 6, padding: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.15)" }}
+                  onMouseLeave={() => setSeletorTabela({ l: 0, c: 0 })}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(10, 16px)", gap: 2 }}>
+                    {Array.from({ length: 80 }, (_, i) => {
+                      const l = Math.floor(i / 10) + 1, c = (i % 10) + 1;
+                      const marc = l <= seletorTabela.l && c <= seletorTabela.c;
+                      return <div key={i} onMouseEnter={() => setSeletorTabela({ l, c })} onMouseDown={(e) => e.preventDefault()} onClick={() => inserirTabela(l, c)}
+                        style={{ width: 16, height: 16, border: "1px solid " + (marc ? GOLD : "#ccc"), background: marc ? "rgba(154,110,30,0.25)" : "#fff", cursor: "pointer" }} />;
+                    })}
+                  </div>
+                  <div style={{ fontSize: 12, textAlign: "center", marginTop: 6, color: "#555" }}>
+                    {seletorTabela.l ? `${seletorTabela.l} × ${seletorTabela.c}` : "Escolha o tamanho"}{" · "}
+                    <a href="#" onMouseDown={(e) => e.preventDefault()} onClick={(e) => { e.preventDefault(); inserirTabela(parseInt(prompt("Número de linhas:", "3"), 10), parseInt(prompt("Número de colunas:", "3"), 10)); }}>outro tamanho…</a>
+                  </div>
+                </div>
+              )}
+            </span>
+          </Grupo>
+          <Grupo titulo="Ilustrações">
+            <Btn grande icone="🖼" rotulo="Imagem" onClick={() => arquivoImg.current.click()} title="Inserir imagem do computador" />
+          </Grupo>
+          <Grupo titulo="Links">
+            <Btn grande icone="🔗" rotulo="Link" onClick={inserirLink} />
+          </Grupo>
+          <Grupo titulo="Comentários">
+            <Btn grande icone="💬" rotulo="Comentário" onClick={comentar} title="Comentar o trecho selecionado" />
+          </Grupo>
+          <Grupo titulo="Cabeçalho e Rodapé">
+            <div style={sColuna}>
+              <Btn icone="▔" rotulo="Cabeçalho" onClick={() => cab.current?.focus()} />
+              <Btn icone="▁" rotulo="Rodapé" onClick={() => rod.current?.focus()} />
+            </div>
+            <select data-sem-foco style={{ ...sSelect, width: 132, alignSelf: "center" }} value={atual.numPag || ""} onChange={(e) => mudarDoc({ numPag: e.target.value })} title="Número de página">
+              <option value="">Nº de página: não</option>
+              <option value="direita">Rodapé, à direita</option>
+              <option value="centro">Rodapé, centralizado</option>
+              <option value="xdey">"Página X de Y"</option>
+            </select>
+          </Grupo>
+          <Grupo titulo="Símbolos">
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 24px)", gap: 2 }}>
+              {SIMBOLOS.map((c) => <button key={c} onClick={() => inserirSimbolo(c)} title={`Inserir ${c}`}
+                style={{ width: 24, height: 24, border: "1px solid #e0dacb", background: "#fff", borderRadius: 3, cursor: "pointer", fontSize: 13, padding: 0 }}>{c}</button>)}
+            </div>
+          </Grupo>
+        </>}
+
+        {abaFaixa === "layout" && <>
+          <Grupo titulo="Configurar Página">
+            <Menu grande icone="▭" rotulo="Margens" itens={[
+              ["Padrão ABNT (sup./esq. 3 cm; inf./dir. 2 cm)", () => mudarDoc({ pagina: { ...pagina, margens: { sup: 3, inf: 2, esq: 3, dir: 2 } } })],
+              ["Normal (2,5 cm; esq./dir. 3 cm)", () => mudarDoc({ pagina: { ...pagina, margens: { sup: 2.5, inf: 2.5, esq: 3, dir: 3 } } })],
+              ["Estreita (1,27 cm)", () => mudarDoc({ pagina: { ...pagina, margens: { sup: 1.27, inf: 1.27, esq: 1.27, dir: 1.27 } } })],
+              ["Moderada (2,54 / 1,91 cm)", () => mudarDoc({ pagina: { ...pagina, margens: { sup: 2.54, inf: 2.54, esq: 1.91, dir: 1.91 } } })],
+              ["Margens personalizadas…", () => setPainelPagina(true)],
+            ]} />
+            <Menu grande icone="⟳" rotulo="Orientação" itens={[["Retrato", () => mudarDoc({ pagina: { ...pagina, orient: "retrato" } })], ["Paisagem", () => mudarDoc({ pagina: { ...pagina, orient: "paisagem" } })]]} />
+            <Menu grande icone="📄" rotulo="Tamanho" itens={[["A4 (21 × 29,7 cm)", () => mudarDoc({ pagina: { ...pagina, tam: "A4" } })], ["Ofício (21,6 × 33 cm)", () => mudarDoc({ pagina: { ...pagina, tam: "Oficio" } })], ["Carta (21,6 × 27,9 cm)", () => mudarDoc({ pagina: { ...pagina, tam: "Carta" } })]]} />
+            <Btn grande icone="⤓" rotulo="Quebras" onClick={() => cmd("insertHTML", "<hr><p><br></p>")} title="Quebra de página" />
+          </Grupo>
+          <Grupo titulo="Parágrafo">
+            <div style={sColuna}>
+              <div style={sLinha}><span style={sRotulo}>Recuo 1ª linha</span>
+                <select data-sem-foco style={{ ...sSelect, width: 90 }} value="" onChange={(e) => estiloParagrafo("textIndent", e.target.value)}>
+                  <option value="" disabled>escolher</option><option value="0cm">Nenhum</option><option value="1.25cm">1,25 cm</option><option value="2.5cm">2,5 cm</option><option value="4cm">4 cm</option>
+                </select></div>
+              <div style={sLinha}><span style={sRotulo}>Espaço depois</span>
+                <select data-sem-foco style={{ ...sSelect, width: 90 }} value="" onChange={(e) => estiloParagrafo("marginBottom", e.target.value)}>
+                  <option value="" disabled>escolher</option>{["0pt", "6pt", "12pt", "18pt"].map((v) => <option key={v} value={v}>{v.replace("pt", " pt")}</option>)}
+                </select></div>
+            </div>
+          </Grupo>
+          <Grupo titulo="Página atual">
+            <div style={{ fontSize: 12, color: "#555", alignSelf: "center", lineHeight: 1.6 }}>
+              {({ A4: "A4", Oficio: "Ofício", Carta: "Carta" })[pagina.tam]} · {pagina.orient === "paisagem" ? "paisagem" : "retrato"}<br />
+              Margens: {m.sup} / {m.inf} / {m.esq} / {m.dir} cm
+            </div>
+          </Grupo>
+        </>}
+
+        {abaFaixa === "referencias" && <>
+          <Grupo titulo="Sumário">
+            <Btn grande icone="≣" rotulo="Sumário" onClick={inserirSumario} title="Inserir sumário automático (usa os Títulos 1, 2 e 3)" />
+            <Btn grande icone="⟳" rotulo="Atualizar" onClick={() => { atualizarSumarios(); salvarHtml(); }} title="Atualizar o sumário" />
+          </Grupo>
+          <Grupo titulo="Notas de Rodapé">
+            <Btn grande icone="¹" rotulo="Inserir Nota" onClick={inserirNota} title="Inserir nota de rodapé no ponto do cursor" />
+          </Grupo>
+        </>}
+
+        {abaFaixa === "revisao" && <>
+          <Grupo titulo="Revisão de Texto">
+            <Btn grande icone="📊" rotulo="Contar Palavras" onClick={() => setContagem(true)} />
+          </Grupo>
+          <Grupo titulo="Comentários">
+            <Btn grande icone="💬" rotulo="Novo Comentário" onClick={comentar} title="Comentar o trecho selecionado" />
+          </Grupo>
+          <Grupo titulo="Controle">
+            <Btn grande icone="✎" rotulo={atual.controlar ? "Controlando: ligado" : "Controlar Alterações"} ativo={atual.controlar} onClick={alternarControle} title="Inclusões e exclusões ficam marcadas com o seu nome" />
+            <div style={sColuna}>
+              <label style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "center" }}>
                 <input type="checkbox" checked={mostrarMarcas} onChange={(e) => setMostrarMarcas(e.target.checked)} /> Mostrar marcações
               </label>
-              <button style={sBotao()} onClick={() => { setMenuRevisao(false); const n = prompt("Seu nome (aparece nos comentários e nas alterações):", autor)?.trim(); if (n) { gravar("editorTexto.autor", n); setAutor(n); } }}>Meu nome: {autor || "(não definido)"}</button>
+              <Btn icone="👤" rotulo={autor || "Meu nome"} onClick={() => { const n = prompt("Seu nome (aparece nos comentários e nas alterações):", autor)?.trim(); if (n) { gravar("editorTexto.autor", n); setAutor(n); } }} title="Nome usado nos comentários e alterações" />
             </div>
-          )}
-        </span>
-        <button style={sBotao()} onClick={() => cmd("removeFormat")} title="Limpar formatação">⌫ Formato</button>
-        <span style={sSep} />
-        <button style={sBotao(!!busca)} onClick={() => (busca ? setBusca(null) : abrirBusca(true))} title="Localizar e substituir (Ctrl+L / Ctrl+H)">🔍 Localizar</button>
-        <button style={sBotao(painelPagina)} onClick={() => setPainelPagina((x) => !x)} title="Tamanho do papel, margens, cabeçalho, rodapé e número de página">📄 Página</button>
+          </Grupo>
+          <Grupo titulo="Alterações">
+            <Btn grande icone="✓" rotulo="Aceitar Todas" onClick={() => revisarTodas(true)} />
+            <Btn grande icone="✕" rotulo="Rejeitar Todas" onClick={() => revisarTodas(false)} />
+          </Grupo>
+        </>}
+
+        {abaFaixa === "exibir" && <>
+          <Grupo titulo="Zoom">
+            <Btn grande icone="🔍" rotulo="100%" onClick={() => setZoom(100)} />
+            <Btn grande icone="↔" rotulo="Largura da Página" onClick={larguraDaPagina} />
+            <div style={sColuna}>
+              <Btn icone="＋" rotulo="Aumentar" onClick={() => setZoom((z) => Math.min(200, z + 10))} />
+              <Btn icone="－" rotulo="Diminuir" onClick={() => setZoom((z) => Math.max(50, z - 10))} />
+            </div>
+          </Grupo>
+          <Grupo titulo="Mostrar">
+            <div style={sColuna}>
+              <label style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={mostrarQuebras} onChange={(e) => setMostrarQuebras(e.target.checked)} /> Marcas de fim de página</label>
+              <label style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={mostrarGrade} onChange={(e) => setMostrarGrade(e.target.checked)} /> Linhas de grade das tabelas</label>
+              <label style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={mostrarMarcas} onChange={(e) => setMostrarMarcas(e.target.checked)} /> Marcações de revisão</label>
+            </div>
+          </Grupo>
+          <Grupo titulo="Fundo">
+            <div style={sColuna}>
+              <label style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "center" }}>
+                <input type="checkbox" checked={fundoEscuro} onChange={(e) => { setFundoEscuro(e.target.checked); gravar("editorTexto.fundoEscuro", e.target.checked); }} /> Fundo escuro em volta da página
+              </label>
+            </div>
+          </Grupo>
+        </>}
       </div>
+      {msg && <p style={{ fontSize: 13, color: GOLD, margin: 0, padding: "6px 10px", background: "#fffaf0", borderBottom: "1px solid #eee", fontFamily: FONTE_UI }}>{msg}</p>}
 
       {busca && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", padding: 8, background: "#fbf8f1", border: "1px solid rgba(0,0,0,0.12)", borderTop: 0 }}>
@@ -1119,7 +1433,8 @@ export default function EditorTexto() {
         </div>
       )}
 
-      <div style={{ background: "#e9e6df", border: "1px solid rgba(0,0,0,0.12)", borderTop: 0, borderRadius: "0 0 10px 10px", padding: "24px 12px", overflowX: "auto", display: "flex", justifyContent: "center", alignItems: "flex-start", gap: 14 }}>
+      <div ref={areaRef} style={{ background: fundoEscuro ? COR_FUNDO_ESCURO : "#e9e6df", padding: "24px 12px", overflowX: "auto" }}>
+      <div style={{ zoom: zoom / 100, display: "flex", justifyContent: "safe center", alignItems: "flex-start", gap: 14 }}>
         <div ref={pagRef} style={{ position: "relative", background: "#fff", width: `${largCm}cm`, maxWidth: "100%", flex: "none", minHeight: `${altCm}cm`, boxShadow: "0 2px 12px rgba(0,0,0,0.15)", boxSizing: "border-box", padding: `0 ${m.dir}cm 0 ${m.esq}cm`, display: "flex", flexDirection: "column" }}>
           <div style={{ minHeight: `${m.sup}cm`, display: "flex", alignItems: "flex-end", paddingBottom: "0.3cm", boxSizing: "border-box" }}>
             <div ref={cab} className="ed-area" contentEditable suppressContentEditableWarning data-vazio="Cabeçalho (clique para escrever)" lang="pt-BR" spellCheck
@@ -1140,8 +1455,8 @@ export default function EditorTexto() {
                 ))}
               </div>
             )}
-            {imgSel?.isConnected && <MolduraImagem img={imgSel} base={editor.current} redimensionar={redimensionarImagem} posicionar={posicionarImagem} original={tamanhoOriginal} excluir={excluirImagem} />}
-            {quebras.map((y, i) => (
+            {imgSel?.isConnected && <MolduraImagem zoom={zoom / 100} img={imgSel} base={editor.current} redimensionar={redimensionarImagem} posicionar={posicionarImagem} original={tamanhoOriginal} excluir={excluirImagem} />}
+            {mostrarQuebras && quebras.map((y, i) => (
               <div key={i} style={{ position: "absolute", left: `-${m.esq}cm`, right: `-${m.dir}cm`, top: y, borderTop: "1px dashed #c9bfa8", pointerEvents: "none" }}>
                 <span style={{ position: "absolute", right: 4, top: -9, fontSize: 10, color: "#a8987a", background: "#fff", padding: "0 4px", fontFamily: "sans-serif" }}>Página {i + 2}</span>
               </div>
@@ -1158,15 +1473,26 @@ export default function EditorTexto() {
           </div>
         </div>
         {(Object.keys(comentarios).length > 0 || autoresRev.length > 0 || atual.controlar) && (
-          <PainelRevisao editor={editor.current} pagina={pagRef.current} comentarios={comentarios} versao={atual.html} quebras={quebras}
+          <PainelRevisao zoom={zoom / 100} editor={editor.current} pagina={pagRef.current} comentarios={comentarios} versao={atual.html} quebras={quebras}
             ativo={comAtivo} setAtivo={setComAtivo} novo={comNovo} setNovo={setComNovo} autor={autor} mostrarMarcas={mostrarMarcas}
             mudar={mudarComentario} excluir={excluirComentario} revisar={revisar} />
         )}
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, fontSize: 12, color: "#666", marginTop: 6 }}>
-        <span>Página {Math.min(pagAtual, totalPag)} de {totalPag} · {palavras} palavra{palavras === 1 ? "" : "s"} · salvo automaticamente neste navegador</span>
-        <span>Ctrl+S salva · Ctrl+Shift+S salva como · Ctrl+P imprime · Ctrl+L localiza · Ctrl+H substitui</span>
       </div>
+      {/* Barra de status */}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", fontSize: 12, color: "#e8e4da", background: COR_STATUS, padding: "4px 12px", borderRadius: "0 0 10px 10px", fontFamily: FONTE_UI }}>
+        <span>Página {Math.min(pagAtual, totalPag)} de {totalPag}</span>
+        <button onClick={() => setContagem(true)} style={{ background: "none", border: 0, color: "inherit", cursor: "pointer", fontSize: 12, padding: 0 }} title="Contar palavras">{palavras} palavra{palavras === 1 ? "" : "s"}</button>
+        <span>Português (Brasil)</span>
+        {atual.controlar && <span style={{ color: "#ffd38a" }}>✎ Controlando alterações</span>}
+        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+          <button onClick={() => setZoom((z) => Math.max(50, z - 10))} style={sZoomBt} title="Diminuir zoom">－</button>
+          <input type="range" min="50" max="200" step="10" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} style={{ width: 110 }} title="Zoom" />
+          <button onClick={() => setZoom((z) => Math.min(200, z + 10))} style={sZoomBt} title="Aumentar zoom">＋</button>
+          <button onClick={() => setZoom(100)} style={{ ...sZoomBt, width: 44 }} title="Voltar a 100%">{zoom}%</button>
+        </span>
+      </div>
+      {contagem && <ContagemPalavras editor={editor.current} paginas={totalPag} fechar={() => setContagem(false)} />}
       {menu && <MenuTabela menu={menu} sel={selCelulas.current?.ret} op={opTabela} fechar={() => setMenu(null)} />}
     </div>
   );
@@ -1217,9 +1543,10 @@ function MenuTabela({ menu, sel, op, fechar }) {
   );
 }
 
-function MolduraImagem({ img, base, redimensionar, posicionar, original, excluir }) {
-  const b = base.getBoundingClientRect(), r = img.getBoundingClientRect();
-  const x = r.left - b.left, y = r.top - b.top;
+function MolduraImagem({ zoom = 1, img, base, redimensionar, posicionar, original, excluir }) {
+  const b = base.getBoundingClientRect(), r0 = img.getBoundingClientRect();
+  const r = { width: r0.width / zoom, height: r0.height / zoom };
+  const x = (r0.left - b.left) / zoom, y = (r0.top - b.top) / zoom;
   const flutua = img.style.float;
   const centro = img.closest("p,div,h1,h2,h3,li,td")?.style.textAlign === "center";
   const alca = (canto, estilo) => (
@@ -1303,7 +1630,7 @@ function PainelEstilos({ estilos, mudar }) {
 
 // Coluna à direita da página com os balões de comentários e de alterações, cada um na
 // altura do trecho a que se refere (como no Word).
-function PainelRevisao({ editor, pagina, comentarios, versao, quebras, ativo, setAtivo, novo, setNovo, autor, mostrarMarcas, mudar, excluir, revisar }) {
+function PainelRevisao({ zoom = 1, editor, pagina, comentarios, versao, quebras, ativo, setAtivo, novo, setNovo, autor, mostrarMarcas, mudar, excluir, revisar }) {
   const [tops, setTops] = useState({});
   const caixa = useRef(null);
   const itens = [];
@@ -1315,7 +1642,7 @@ function PainelRevisao({ editor, pagina, comentarios, versao, quebras, ativo, se
         const id = el.dataset.c;
         if (vistos.has(id) || !comentarios[id]) return;
         vistos.add(id);
-        itens.push({ chave: "c:" + id, tipo: "c", id, y: el.getBoundingClientRect().top - base, c: comentarios[id] });
+        itens.push({ chave: "c:" + id, tipo: "c", id, y: (el.getBoundingClientRect().top - base) / zoom, c: comentarios[id] });
       } else if (mostrarMarcas) {
         const anterior = itens[itens.length - 1];
         // Exclusão seguida de inclusão do mesmo autor = substituição (um balão só).
@@ -1323,7 +1650,7 @@ function PainelRevisao({ editor, pagina, comentarios, versao, quebras, ativo, se
           anterior.els.push(el);
           return;
         }
-        itens.push({ chave: "r:" + itens.length, tipo: "r", els: [el], y: el.getBoundingClientRect().top - base });
+        itens.push({ chave: "r:" + itens.length, tipo: "r", els: [el], y: (el.getBoundingClientRect().top - base) / zoom });
       }
     });
   }
